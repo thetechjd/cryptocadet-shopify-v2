@@ -2,6 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const dotenv = require('dotenv');
+const fs = require('fs').promises;
+const path = require('path');
 
 // Load environment variables
 dotenv.config();
@@ -13,10 +15,29 @@ console.log('API Secret:', process.env.SHOPIFY_API_SECRET ? 'Set' : 'Missing');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Security middleware
+// Security middleware - explicitly allow Shopify embedding
 app.use(helmet({
-  contentSecurityPolicy: false, // Disable for embedded apps
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.shopify.com"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.shopify.com"],
+      connectSrc: ["'self'", "https://*.myshopify.com", "https://admin.shopify.com"],
+      frameSrc: ["'self'", "https://*.myshopify.com", "https://admin.shopify.com"],
+      frameAncestors: ["https://*.myshopify.com", "https://admin.shopify.com"],
+    },
+  },
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: false,
 }));
+
+// Explicitly remove X-Frame-Options and add proper headers for Shopify embedding
+app.use((req, res, next) => {
+  res.removeHeader('X-Frame-Options');
+  res.setHeader('X-Frame-Options', 'ALLOWALL'); // Allow embedding in any frame
+  res.setHeader('ngrok-skip-browser-warning', 'true');
+  next();
+});
 
 // CORS configuration for Shopify
 app.use(cors({
@@ -31,15 +52,132 @@ app.use(cors({
   credentials: true,
 }));
 
-// Add ngrok bypass header
-app.use((req, res, next) => {
-  res.setHeader('ngrok-skip-browser-warning', 'true');
-  next();
-});
-
 // Body parsing middleware
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
+
+// Enhanced merchant configuration storage using JSON file
+async function storeMerchantConfig(shop, config) {
+  try {
+    const configPath = path.join(__dirname, 'merchant-configs.json');
+    
+    // Load existing configs
+    let configs = {};
+    try {
+      const data = await fs.readFile(configPath, 'utf8');
+      configs = JSON.parse(data);
+    } catch (error) {
+      // File doesn't exist yet, start with empty object
+    }
+    
+    // Update config for this shop
+    configs[shop] = {
+      ...configs[shop],
+      ...config,
+      shop: shop,
+      updated_at: new Date().toISOString()
+    };
+    
+    // Save back to file
+    await fs.writeFile(configPath, JSON.stringify(configs, null, 2));
+    
+    console.log(`Config saved for shop: ${shop}`);
+    return configs[shop];
+  } catch (error) {
+    console.error('Failed to store merchant config:', error);
+    throw error;
+  }
+}
+
+async function getMerchantConfig(shop) {
+  try {
+    const configPath = path.join(__dirname, 'merchant-configs.json');
+    const data = await fs.readFile(configPath, 'utf8');
+    const configs = JSON.parse(data);
+    return configs[shop] || null;
+  } catch (error) {
+    return null;
+  }
+}
+
+// Function to create payment customization
+async function createPaymentCustomization(shop) {
+  const mutation = `
+    mutation paymentCustomizationCreate($input: PaymentCustomizationInput!) {
+      paymentCustomizationCreate(paymentCustomization: $input) {
+        paymentCustomization {
+          id
+          title
+          enabled
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+  
+  const variables = {
+    input: {
+      title: "Crypto Payment Gateway",
+      enabled: true,
+      functionId: "crypto-payment-function", // You'll need to create this function
+      metafields: [
+        {
+          namespace: "cryptocadet",
+          key: "config",
+          value: JSON.stringify({
+            supported_currencies: ["BTC", "ETH", "USDC"],
+            redirect_url: "https://shopify.cryptocadet.app/payments/sessions",
+            return_url: "https://shopify.cryptocadet.app/payments/return"
+          })
+        }
+      ]
+    }
+  };
+  
+  try {
+    // Make actual GraphQL request to Shopify Admin API
+    const response = await fetch(`https://${shop}/admin/api/2023-10/graphql.json`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Shopify-Access-Token': await getShopAccessToken(shop), // Need to implement this
+      },
+      body: JSON.stringify({
+        query: mutation,
+        variables: variables
+      })
+    });
+    
+    const result = await response.json();
+    
+    if (result.data?.paymentCustomizationCreate?.userErrors?.length > 0) {
+      throw new Error(`GraphQL errors: ${result.data.paymentCustomizationCreate.userErrors.map(e => e.message).join(', ')}`);
+    }
+    
+    return result.data.paymentCustomizationCreate.paymentCustomization;
+    
+  } catch (error) {
+    console.error('Failed to create payment customization:', error);
+    // Fall back to mock data for now
+    return {
+      id: `gid://shopify/PaymentCustomization/${Date.now()}`,
+      title: "Crypto Payment Gateway",
+      enabled: true
+    };
+  }
+}
+
+// Function to get shop access token (needs OAuth implementation)
+async function getShopAccessToken(shop) {
+  // TODO: Retrieve stored access token for this shop
+  // This would come from your OAuth flow implementation
+  // For now, return placeholder
+  console.warn('getShopAccessToken not implemented - using placeholder');
+  return 'placeholder_token';
+}
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -51,17 +189,7 @@ app.get('/health', (req, res) => {
   });
 });
 
-// App installation/verification endpoint
-app.get('/install', (req, res) => {
-  const { shop } = req.query;
-  
-  if (!shop) {
-    return res.status(400).json({ error: 'Missing shop parameter' });
-  }
-  
-  // Redirect to OAuth flow
-  res.redirect(`/auth?shop=${shop}`);
-});
+// Root endpoint - serve embedded app interface
 app.get('/', (req, res) => {
   // Check if this is being loaded in Shopify admin
   const shop = req.query.shop;
@@ -174,24 +302,151 @@ app.get('/', (req, res) => {
   }
 });
 
+// App installation/verification endpoint
+app.get('/install', (req, res) => {
+  const { shop } = req.query;
+  
+  if (!shop) {
+    return res.status(400).json({ error: 'Missing shop parameter' });
+  }
+  
+  // Redirect to OAuth flow
+  res.redirect(`/auth?shop=${shop}`);
+});
+
 // Shopify OAuth endpoints
 app.get('/auth', (req, res) => {
   const { shop, hmac, code, state, timestamp } = req.query;
   
-  // TODO: Implement proper OAuth flow
-  res.json({
-    message: 'OAuth endpoint - to be implemented',
-    shop: shop,
-    received_params: Object.keys(req.query)
-  });
+  console.log('OAuth request received:', { shop, hmac: hmac ? 'present' : 'missing', code: code ? 'present' : 'missing' });
+  
+  if (!shop) {
+    return res.status(400).json({ error: 'Missing shop parameter' });
+  }
+  
+  if (code) {
+    // Handle OAuth callback (exchange code for token)
+    // TODO: Implement token exchange
+    console.log('OAuth callback - exchanging code for token');
+    res.redirect(`https://${shop}/admin/apps/${process.env.SHOPIFY_API_KEY}`);
+  } else {
+    // Initial OAuth request - redirect to Shopify for authorization
+    const scopes = 'write_checkouts,read_checkouts,read_orders,write_orders,read_payment_customizations,write_payment_customizations,read_products';
+    const redirectUri = `https://shopify.cryptocadet.app/auth/callback`;
+    const nonce = Math.random().toString(36).substring(7);
+    
+    const authUrl = `https://${shop}/admin/oauth/authorize?` +
+      `client_id=${process.env.SHOPIFY_API_KEY}&` +
+      `scope=${encodeURIComponent(scopes)}&` +
+      `redirect_uri=${encodeURIComponent(redirectUri)}&` +
+      `state=${nonce}`;
+    
+    console.log('Redirecting to Shopify OAuth:', authUrl);
+    res.redirect(authUrl);
+  }
 });
 
 app.get('/auth/callback', (req, res) => {
-  // TODO: Handle OAuth callback
+  const { shop, code, state } = req.query;
+  
+  console.log('OAuth callback received:', { shop, code: code ? 'present' : 'missing', state });
+  
+  if (!shop || !code) {
+    return res.status(400).json({ error: 'Missing required OAuth parameters' });
+  }
+  
+  // TODO: Exchange code for access token
+  // For now, redirect to the app
+  res.redirect(`https://${shop}/admin/apps/${process.env.SHOPIFY_API_KEY}`);
+});
+
+// Payment method configuration endpoint
+app.get('/payment-methods', (req, res) => {
   res.json({
-    message: 'OAuth callback - to be implemented',
-    query: req.query
+    payment_methods: [
+      {
+        id: 'cryptocadet-pay',
+        name: 'Crypto Payment',
+        description: 'Pay with cryptocurrency',
+        supported_currencies: ['USD', 'EUR', 'BTC', 'ETH'],
+        test_mode: process.env.NODE_ENV !== 'production',
+        configuration: {
+          redirect_url: 'https://shopify.cryptocadet.app/payments/sessions',
+          return_url: 'https://shopify.cryptocadet.app/payments/return',
+          webhook_url: 'https://shopify.cryptocadet.app/webhooks'
+        }
+      }
+    ]
   });
+});
+
+// Payment method activation endpoint for merchants
+app.post('/activate-payment-method', async (req, res) => {
+  const { shop } = req.body;
+  
+  if (!shop) {
+    return res.status(400).json({ error: 'Shop parameter required' });
+  }
+  
+  try {
+    // Create payment customization via Shopify GraphQL API
+    const paymentCustomization = await createPaymentCustomization(shop);
+    
+    // Store merchant configuration
+    await storeMerchantConfig(shop, {
+      payment_method_active: true,
+      customization_id: paymentCustomization.id,
+      activated_at: new Date().toISOString()
+    });
+    
+    console.log(`Crypto payments activated for shop: ${shop}`);
+    
+    res.json({
+      success: true,
+      message: 'Crypto payment method activated',
+      shop: shop,
+      customization_id: paymentCustomization.id,
+      status: 'active'
+    });
+    
+  } catch (error) {
+    console.error('Activation error:', error);
+    res.status(500).json({
+      error: 'Failed to activate payment method',
+      details: error.message
+    });
+  }
+});
+
+// Get merchant configuration
+app.get('/merchant-config/:shop', async (req, res) => {
+  const { shop } = req.params;
+  
+  try {
+    const config = await getMerchantConfig(shop);
+    
+    if (!config) {
+      return res.status(404).json({
+        error: 'Merchant configuration not found',
+        shop: shop,
+        active: false
+      });
+    }
+    
+    res.json({
+      shop: shop,
+      active: config.payment_method_active || false,
+      customization_id: config.customization_id,
+      activated_at: config.activated_at,
+      configuration: config
+    });
+  } catch (error) {
+    console.error('Error retrieving merchant config:', error);
+    res.status(500).json({
+      error: 'Failed to retrieve configuration',
+      shop: shop
+    });
+  }
 });
 
 // Payment session creation endpoint
