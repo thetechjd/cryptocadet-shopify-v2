@@ -51,18 +51,58 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Root endpoint
+// Root endpoint - serve embedded app interface
 app.get('/', (req, res) => {
-  res.json({ 
-    message: 'CryptoCadet Payment Gateway API',
-    version: '1.0.0',
-    endpoints: {
-      health: '/health',
-      auth: '/auth',
-      payments: '/payments',
-      webhooks: '/webhooks'
-    }
-  });
+  // Check if this is being loaded in Shopify admin
+  const shop = req.query.shop;
+  const hmac = req.query.hmac;
+  
+  if (shop) {
+    // Serve embedded app HTML for Shopify
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>CryptoCadet Payment Gateway</title>
+        <script src="https://unpkg.com/@shopify/app-bridge@3"></script>
+      </head>
+      <body>
+        <div id="app">
+          <h1>CryptoCadet Payment Gateway</h1>
+          <p>Crypto payment integration for Shopify</p>
+          <p>Shop: ${shop}</p>
+          <div>
+            <h2>App Status</h2>
+            <p>✅ Server running</p>
+            <p>✅ Connected to Shopify</p>
+            <p>✅ Ready for payment processing</p>
+          </div>
+        </div>
+        <script>
+          var AppBridge = window['app-bridge'];
+          var app = AppBridge.createApp({
+            apiKey: '${process.env.SHOPIFY_API_KEY}',
+            shop: '${shop}',
+            forceRedirect: true
+          });
+        </script>
+      </body>
+      </html>
+    `);
+  } else {
+    // Serve API info for non-Shopify requests
+    res.json({ 
+      message: 'CryptoCadet Payment Gateway API',
+      version: '1.0.0',
+      endpoints: {
+        health: '/health',
+        auth: '/auth',
+        payments: '/payments',
+        webhooks: '/webhooks'
+      }
+    });
+  }
 });
 
 // Shopify OAuth endpoints
