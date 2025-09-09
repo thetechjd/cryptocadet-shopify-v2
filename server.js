@@ -76,19 +76,56 @@ app.get('/', (req, res) => {
         <meta charset="utf-8">
         <title>CryptoCadet Payment Gateway</title>
         <script src="https://unpkg.com/@shopify/app-bridge@3"></script>
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 20px; }
+          .container { max-width: 600px; margin: 0 auto; }
+          .status-item { margin: 10px 0; }
+          .button { background: #5c6ac4; color: white; border: none; padding: 12px 24px; border-radius: 4px; cursor: pointer; font-size: 14px; }
+          .button:hover { background: #4c5aa0; }
+          .success { color: #007f5f; }
+          .section { margin: 30px 0; padding: 20px; border: 1px solid #e1e3e9; border-radius: 8px; }
+        </style>
       </head>
       <body>
-        <div id="app">
+        <div class="container">
           <h1>CryptoCadet Payment Gateway</h1>
           <p>Crypto payment integration for Shopify</p>
-          <p>Shop: ${shop}</p>
-          <div>
+          <p><strong>Shop:</strong> ${shop}</p>
+          
+          <div class="section">
             <h2>App Status</h2>
-            <p>✅ Server running</p>
-            <p>✅ Connected to Shopify</p>
-            <p>✅ Ready for payment processing</p>
+            <div class="status-item">✅ Server running</div>
+            <div class="status-item">✅ Connected to Shopify</div>
+            <div class="status-item">✅ Ready for payment processing</div>
+          </div>
+
+          <div class="section">
+            <h2>Payment Method Setup</h2>
+            <p>Activate crypto payments for your customers:</p>
+            <button class="button" onclick="activatePaymentMethod()">
+              Activate Crypto Payment Method
+            </button>
+            <div id="activation-status"></div>
+          </div>
+
+          <div class="section">
+            <h2>Configuration</h2>
+            <p><strong>Supported Cryptocurrencies:</strong> Bitcoin, Ethereum, USDC</p>
+            <p><strong>Processing:</strong> Real-time blockchain verification</p>
+            <p><strong>Integration:</strong> Seamless checkout experience</p>
+          </div>
+
+          <div class="section">
+            <h2>Next Steps</h2>
+            <ol>
+              <li>Click "Activate Crypto Payment Method" above</li>
+              <li>Test with a sample order in your store</li>
+              <li>Configure your crypto wallet settings</li>
+              <li>Start accepting crypto payments!</li>
+            </ol>
           </div>
         </div>
+
         <script>
           var AppBridge = window['app-bridge'];
           var app = AppBridge.createApp({
@@ -96,6 +133,28 @@ app.get('/', (req, res) => {
             shop: '${shop}',
             forceRedirect: true
           });
+
+          function activatePaymentMethod() {
+            const statusDiv = document.getElementById('activation-status');
+            statusDiv.innerHTML = '<p>Activating...</p>';
+            
+            fetch('/activate-payment-method', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ shop: '${shop}' })
+            })
+            .then(response => response.json())
+            .then(data => {
+              if (data.success) {
+                statusDiv.innerHTML = '<p class="success">✅ Crypto payment method activated successfully!</p>';
+              } else {
+                statusDiv.innerHTML = '<p style="color: red;">❌ Activation failed: ' + (data.error || 'Unknown error') + '</p>';
+              }
+            })
+            .catch(error => {
+              statusDiv.innerHTML = '<p style="color: red;">❌ Error: ' + error.message + '</p>';
+            });
+          }
         </script>
       </body>
       </html>
