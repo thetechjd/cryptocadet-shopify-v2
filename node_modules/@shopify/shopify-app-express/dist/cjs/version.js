@@ -1,0 +1,6 @@
+'use strict';
+
+const SHOPIFY_EXPRESS_LIBRARY_VERSION = '5.0.20';
+
+exports.SHOPIFY_EXPRESS_LIBRARY_VERSION = SHOPIFY_EXPRESS_LIBRARY_VERSION;
+//# sourceMappingURL=version.js.map

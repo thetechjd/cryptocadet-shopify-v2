@@ -1,0 +1,21 @@
+name = "cryptocadet-pay"
+client_id = "9e033207cb5243f695909570d1f5ce3c"
+application_url = "https://9ca2bdd06a60.ngrok-free.app"
+embedded = true
+
+[build]
+automatically_update_urls_on_dev = true
+
+[access_scopes]
+scopes = "read_payment_gateways,write_payment_gateways,read_orders,write_orders"
+
+[auth]
+redirect_urls = [
+  "https://9ca2bdd06a60.ngrok-free.app/auth/callback"
+]
+
+[webhooks]
+api_version = "2023-10"
+
+[pos]
+embedded = false
