@@ -46,12 +46,22 @@ app.get('/health', (req, res) => {
   res.json({ 
     status: 'healthy', 
     timestamp: new Date().toISOString(),
-    app: 'cryptocadet-pay',
+    app: 'cryptocadet-payment-gateway',
     shopify_api_key: process.env.SHOPIFY_API_KEY ? 'configured' : 'missing'
   });
 });
 
-// Root endpoint - serve embedded app interface
+// App installation/verification endpoint
+app.get('/install', (req, res) => {
+  const { shop } = req.query;
+  
+  if (!shop) {
+    return res.status(400).json({ error: 'Missing shop parameter' });
+  }
+  
+  // Redirect to OAuth flow
+  res.redirect(`/auth?shop=${shop}`);
+});
 app.get('/', (req, res) => {
   // Check if this is being loaded in Shopify admin
   const shop = req.query.shop;
