@@ -46,7 +46,7 @@ app.get('/health', (req, res) => {
   res.json({ 
     status: 'healthy', 
     timestamp: new Date().toISOString(),
-    app: 'cryptocadet-payment-gateway',
+    app: 'cryptocadet-pay',
     shopify_api_key: process.env.SHOPIFY_API_KEY ? 'configured' : 'missing'
   });
 });
