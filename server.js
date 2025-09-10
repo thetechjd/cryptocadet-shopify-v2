@@ -18,7 +18,12 @@ app.use(
       directives: {
         defaultSrc: ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.shopify.com"],
-        scriptSrc: ["'self'"], // no unpkg
+        scriptSrc: [
+          "'self'",
+          "'unsafe-inline'",
+          "https://cdn.shopify.com",
+          "https://unpkg.com" // ✅ allow App Bridge from unpkg
+        ],
         connectSrc: ["'self'", "https://*.myshopify.com", "https://admin.shopify.com"],
         frameSrc: ["'self'", "https://*.myshopify.com", "https://admin.shopify.com"],
         frameAncestors: ["https://*.myshopify.com", "https://admin.shopify.com"],
@@ -140,7 +145,9 @@ app.get('/', (req, res) => {
             <div id="activation-status"></div>
           </div>
         </div>
-        <script src="/static/app.js"></script>
+       <script src="https://unpkg.com/@shopify/app-bridge@3"></script>
+<script src="/static/app.js"></script>
+        
       </body>
       </html>
     `);
