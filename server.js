@@ -392,277 +392,116 @@ app.get('/merchant-config/:shop', async (req, res) => {
 });
 
 // **** UPDATED: This route serves the actual JavaScript file
-app.get('/checkout-extension.js', (req, res) => {
-  res.setHeader('Content-Type', 'application/javascript');
-  res.send(`
+app.get('/checkout-extension.js', (_req, res) => {
+  res.type('application/javascript').send(`
     (function () {
-      console.log('CryptoCadet: Script started');
-      console.log('CryptoCadet: Current URL:', window.location.href);
-      
-      const SCRIPT_ID = "crypto-pay-button-script";
+      const BTN_ID = 'crypto-pay-btn';
 
-      // Only run on cart page
-      const isCartPage = window.location.pathname === '/cart' || 
-                        window.location.pathname.includes('/cart');
-      
-      console.log('CryptoCadet: Is cart page?', isCartPage);
-      
-      if (!isCartPage) {
-        console.log('CryptoCadet: Not on cart page, skipping');
-        return;
+      // Only on the cart page
+      if (!/\\/cart(\\/|$)?/.test(location.pathname)) return;
+
+      function $q(sel, root) { return (root || document).querySelector(sel); }
+      function $qa(sel, root) { return (root || document).querySelectorAll(sel); }
+
+      // Find the *visible* cart form (NOT the drawer/notification form)
+      function getCartForm() {
+        // Typical Dawn: main cart form has action="/cart"
+        const forms = Array.from($qa('form[action="/cart"]'))
+          // exclude known hidden/notification/drawer forms
+          .filter(f =>
+            f.id !== 'cart-notification-form' &&
+            getComputedStyle(f).display !== 'none' &&
+            f.offsetParent !== null // visible in layout
+          );
+        return forms[0] || null;
       }
 
-      if (document.getElementById(SCRIPT_ID)) {
-        console.log('CryptoCadet: Script already loaded');
-        return;
-      }
-      
-      const scriptElement = document.createElement('script');
-      scriptElement.id = SCRIPT_ID;
-      document.head.appendChild(scriptElement);
-
-      function debugExistingButton() {
-        const existingButton = document.getElementById("crypto-pay-btn");
-        if (existingButton) {
-          console.log('CryptoCadet: Found existing button:', existingButton);
-          console.log('CryptoCadet: Button styles:', {
-            display: existingButton.style.display,
-            visibility: existingButton.style.visibility,
-            opacity: existingButton.style.opacity,
-            position: getComputedStyle(existingButton).position,
-            zIndex: getComputedStyle(existingButton).zIndex,
-            offsetWidth: existingButton.offsetWidth,
-            offsetHeight: existingButton.offsetHeight
-          });
-          console.log('CryptoCadet: Button parent:', existingButton.parentNode);
-          console.log('CryptoCadet: Button in viewport?', existingButton.getBoundingClientRect());
-        }
-      }
-
-      function removeExistingButton() {
-        const existingButton = document.getElementById("crypto-pay-btn");
-        if (existingButton) {
-          console.log('CryptoCadet: Removing existing button');
-          existingButton.remove();
-        }
-      }
-
-      function findCheckoutButton() {
-        console.log('CryptoCadet: Looking for checkout button...');
-        
-        // Look for the "Check out" button specifically
-        const checkoutSelectors = [
-          'button:contains("Check out")',
-          'button[type="submit"]',
-          '.checkout-button',
-          'input[name="checkout"]',
-          'button[name="checkout"]',
-          'form[action*="/checkout"] button',
-          'form[action*="/checkout"] input[type="submit"]'
-        ];
-        
-        // Since :contains doesn't work in querySelector, let's find buttons by text
-        const allButtons = document.querySelectorAll('button, input[type="submit"]');
-        console.log('CryptoCadet: Found', allButtons.length, 'buttons total');
-        
-        for (let button of allButtons) {
-          const text = (button.textContent || button.value || '').trim().toLowerCase();
-          console.log('CryptoCadet: Button text:', text, button);
-          
-          if (text.includes('check out') || text.includes('checkout')) {
-            console.log('CryptoCadet: Found checkout button by text:', button);
-            return button;
-          }
-        }
-        
-        // Fallback to form-based search
-        const checkoutForm = document.querySelector('form[action*="/checkout"]');
-        if (checkoutForm) {
-          const submitBtn = checkoutForm.querySelector('button[type="submit"], input[type="submit"]');
-          if (submitBtn) {
-            console.log('CryptoCadet: Found checkout button in form:', submitBtn);
-            return submitBtn;
-          }
-        }
-        
-        console.log('CryptoCadet: No checkout button found');
-        return null;
+      function getCheckoutButton(form) {
+        if (!form) return null;
+        // The real CTA inside the cart form
+        const btn = form.querySelector('[name="checkout"], button[type="submit"], input[type="submit"]');
+        if (!btn) return null;
+        // Make sure it’s actually visible
+        const cs = getComputedStyle(btn);
+        if (cs.display === 'none' || cs.visibility === 'hidden') return null;
+        return btn;
       }
 
       function getCartTotal() {
-        // Look for the "Estimated total" text visible in your screenshot
-        const totalSelectors = [
-          '.cart__footer .totals .total', 
-          '.cart-footer .total',
-          '.estimated-total',
-          '.cart__total',
-          '.totals__total'
+        const selectors = [
+          '.totals__total-value',
+          '.cart__footer .totals .totals__total-value',
+          '.cart-subtotal .money',
+          '.cart__subtotal .money'
         ];
-        
-        // Also try to find by text content
-        const allElements = document.querySelectorAll('*');
-        for (let el of allElements) {
-          const text = (el.textContent || '').trim();
-          if (text.includes('Estimated total') && text.includes('$')) {
-            console.log('CryptoCadet: Found total by text:', text, el);
-            const match = text.match(/\\\$[\\d,]+\\.?\\d*\\s*USD?/);
-            if (match) return match[0];
-          }
+        for (const s of selectors) {
+          const el = $q(s);
+          if (el) return (el.textContent || '').trim();
         }
-        
-        for (const selector of totalSelectors) {
-          const el = document.querySelector(selector);
-          if (el) {
-            const text = (el.textContent || '').trim();
-            console.log('CryptoCadet: Found total element:', text, el);
-            const match = text.match(/\\\$[\\d,]+\\.?\\d*\\s*USD?/);
-            if (match) return match[0];
-          }
-        }
-        
-        return '$25.00'; // From your screenshot
+        return '';
       }
 
-      function addCryptoButton() {
-        console.log('CryptoCadet: === ATTEMPTING TO ADD CRYPTO BUTTON ===');
-        
-        // First, debug any existing button
-        debugExistingButton();
-        
-        // Remove existing button to start fresh
-        removeExistingButton();
+      function ensureButton() {
+        if (document.getElementById(BTN_ID)) return true;
 
-        const checkoutBtn = findCheckoutButton();
-        if (!checkoutBtn) {
-          console.log('CryptoCadet: No checkout button found - cannot add crypto button');
-          return;
-        }
+        const form = getCartForm();
+        const checkoutBtn = getCheckoutButton(form);
+        if (!form || !checkoutBtn) return false;
 
-        console.log('CryptoCadet: Creating new crypto button...');
+        const cryptoBtn = document.createElement('button');
+        cryptoBtn.id = BTN_ID;
+        cryptoBtn.type = 'button';
+        cryptoBtn.textContent = '🚀 Pay with Crypto';
 
-        const cryptoBtn = document.createElement("button");
-        cryptoBtn.id = "crypto-pay-btn";
-        cryptoBtn.type = "button";
-        cryptoBtn.textContent = "🚀 Pay with Crypto";
-        
-        // Very aggressive styling to ensure visibility
-        cryptoBtn.style.cssText = \`
-          display: block !important;
-          width: 100% !important;
-          margin: 16px 0 !important;
-          padding: 16px 20px !important;
-          background: #ff6b35 !important;
-          color: white !important;
-          border: 3px solid #ff6b35 !important;
-          border-radius: 8px !important;
-          cursor: pointer !important;
-          font-size: 18px !important;
-          font-weight: bold !important;
-          text-align: center !important;
-          position: relative !important;
-          z-index: 9999 !important;
-          min-height: 50px !important;
-          box-shadow: 0 4px 8px rgba(0,0,0,0.2) !important;
-        \`;
+        // Strong inline styles so theme CSS can’t hide it
+        cryptoBtn.style.cssText = [
+          'display:block!important',
+          'width:100%!important',
+          'margin:12px 0!important',
+          'padding:14px 18px!important',
+          'background:#ff6b35!important',
+          'color:#fff!important',
+          'border:none!important',
+          'border-radius:8px!important',
+          'font-size:16px!important',
+          'font-weight:600!important',
+          'cursor:pointer!important',
+          'visibility:visible!important',
+          'opacity:1!important',
+          'position:static!important',
+          'z-index:auto!important'
+        ].join(';');
 
-        cryptoBtn.addEventListener("click", function () {
-          console.log('CryptoCadet: Crypto button clicked!');
-          
-          const total = getCartTotal();
-          
+        cryptoBtn.addEventListener('click', () => {
           const checkoutData = {
-            type: 'cart_checkout',
-            total: total,
-            url: window.location.href,
-            timestamp: new Date().toISOString()
+            type: 'cart',
+            total: getCartTotal(),
+            url: location.href,
+            at: new Date().toISOString()
           };
-
-          const redirectUrl = "https://shopify.cryptocadet.app/crypto-demo?" +
-            new URLSearchParams({ checkout: JSON.stringify(checkoutData) });
-
-          console.log('CryptoCadet: Redirecting to:', redirectUrl);
-          window.location.href = redirectUrl;
+          const redirectUrl =
+            'https://shopify.cryptocadet.app/crypto-demo?' +
+            new URLSearchParams({ checkout: JSON.stringify(checkoutData) }).toString();
+          location.href = redirectUrl;
         });
 
-        // Try multiple insertion strategies
-        console.log('CryptoCadet: Inserting button...');
-        
-        let inserted = false;
-        
-        // Strategy 1: Insert before checkout button
-        try {
-          if (checkoutBtn.parentNode) {
-            checkoutBtn.parentNode.insertBefore(cryptoBtn, checkoutBtn);
-            console.log('CryptoCadet: Strategy 1 - Inserted before checkout button');
-            inserted = true;
-          }
-        } catch (e) {
-          console.log('CryptoCadet: Strategy 1 failed:', e);
-        }
-        
-        // Strategy 2: Insert into checkout button's container
-        if (!inserted) {
-          try {
-            const container = checkoutBtn.closest('.cart__footer, .cart-footer, .totals') || checkoutBtn.parentNode;
-            if (container) {
-              container.appendChild(cryptoBtn);
-              console.log('CryptoCadet: Strategy 2 - Appended to container');
-              inserted = true;
-            }
-          } catch (e) {
-            console.log('CryptoCadet: Strategy 2 failed:', e);
-          }
-        }
-        
-        // Strategy 3: Force insert at end of body
-        if (!inserted) {
-          document.body.appendChild(cryptoBtn);
-          console.log('CryptoCadet: Strategy 3 - Appended to body');
-          inserted = true;
-        }
-        
-        // Verify insertion and visibility
-        setTimeout(() => {
-          const finalButton = document.getElementById("crypto-pay-btn");
-          if (finalButton) {
-            console.log('CryptoCadet: ✅ Button exists in DOM');
-            console.log('CryptoCadet: Button rect:', finalButton.getBoundingClientRect());
-            console.log('CryptoCadet: Button computed styles:', {
-              display: getComputedStyle(finalButton).display,
-              visibility: getComputedStyle(finalButton).visibility,
-              opacity: getComputedStyle(finalButton).opacity,
-              position: getComputedStyle(finalButton).position
-            });
-            
-            // Force visibility if hidden
-            if (getComputedStyle(finalButton).display === 'none') {
-              finalButton.style.display = 'block';
-              console.log('CryptoCadet: Forced button to display: block');
-            }
-          } else {
-            console.log('CryptoCadet: ❌ Button not found in DOM after insertion');
-          }
-        }, 100);
+        // Insert right before the visible checkout button
+        checkoutBtn.insertAdjacentElement('beforebegin', cryptoBtn);
+        return true;
       }
 
-      // Run immediately
-      console.log('CryptoCadet: Running immediately...');
-      addCryptoButton();
-
-      // Run after DOM ready
-      if (document.readyState === "loading") {
-        document.addEventListener("DOMContentLoaded", function() {
-          console.log('CryptoCadet: DOM ready event');
-          setTimeout(addCryptoButton, 500);
+      // Try now, then observe for dynamic cart renders
+      if (!ensureButton()) {
+        const obs = new MutationObserver(() => {
+          if (ensureButton()) obs.disconnect();
         });
+        obs.observe(document.body, { childList: true, subtree: true });
+        // and a short retry loop for good measure
+        let tries = 0;
+        const t = setInterval(() => {
+          if (ensureButton() || ++tries > 20) clearInterval(t);
+        }, 250);
       }
-
-      // Run with delays
-      setTimeout(() => {
-        console.log('CryptoCadet: 2 second retry...');
-        addCryptoButton();
-      }, 2000);
-
     })();
   `);
 });
