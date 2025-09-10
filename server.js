@@ -212,6 +212,34 @@ app.get('/merchant-config/:shop', async (req, res) => {
   res.json(config);
 });
 
+app.get('/checkout-extension.js', (req, res) => {
+  res.setHeader('Content-Type', 'application/javascript');
+  res.send(`
+    // Simple checkout extension that adds crypto payment option
+    if (window.location.pathname.includes('/checkouts/')) {
+      const paymentMethods = document.querySelector('.payment-methods');
+      if (paymentMethods && !document.getElementById('crypto-payment-option')) {
+        const cryptoOption = document.createElement('div');
+        cryptoOption.id = 'crypto-payment-option';
+        cryptoOption.innerHTML = \`
+          <label style="display: block; padding: 10px; border: 1px solid #ccc; margin: 10px 0; cursor: pointer;">
+            <input type="radio" name="payment_method" value="crypto" style="margin-right: 10px;">
+            Pay with Cryptocurrency (Bitcoin, Ethereum, USDC)
+          </label>
+        \`;
+        paymentMethods.appendChild(cryptoOption);
+        
+        // Handle crypto payment selection
+        cryptoOption.querySelector('input').addEventListener('change', function() {
+          if (this.checked) {
+            alert('Crypto payment selected! This would redirect to your crypto payment interface.');
+          }
+        });
+      }
+    }
+  `);
+});
+
 // Payments routes (sessions, confirm, reject) — keep your existing handlers
 // Webhooks (orders, app/uninstalled) — keep your existing handlers
 // Configure-app, test routes, etc. — keep as is
