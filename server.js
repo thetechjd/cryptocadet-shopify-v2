@@ -122,6 +122,7 @@ app.get('/health', (req, res) => {
 });
 
 // ✅ Root endpoint (fixed for CSP-safe)
+app.get('/', (req, res) => {
 res.send(`
   <!DOCTYPE html>
   <html>
@@ -154,6 +155,8 @@ res.send(`
   </body>
   </html>
 `);
+})
+
 // Install/OAuth flow
 app.get('/install', (req, res) => {
   const { shop } = req.query;
