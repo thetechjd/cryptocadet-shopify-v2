@@ -396,119 +396,64 @@ app.get('/checkout-extension.js', (req, res) => {
   res.setHeader('Content-Type', 'application/javascript');
   res.send(`
     (function () {
-      console.log('CryptoCadet: Script started on', window.location.href);
+      console.log("CryptoCadet script loaded:", window.location.href);
 
-      const SCRIPT_ID = "crypto-pay-button-script";
-      if (document.getElementById(SCRIPT_ID)) {
-        console.log('CryptoCadet: Script already injected');
+      // Run only on /cart pages
+      if (!/\\/cart(\\b|\\/|\\?|#|$)/.test(window.location.pathname)) {
         return;
-      }
-
-      // ✅ Only run on cart pages (any /cart variant)
-      if (!/^\\/cart(\\b|\\/|\\?|#|$)/.test(window.location.pathname)) {
-        console.log('CryptoCadet: Not a cart page, skipping');
-        return;
-      }
-
-      // --- Helpers ---
-
-      function getCartTotal() {
-        const totalSelectors = [
-          '.cart__footer .totals .total',
-          '.cart-footer .total',
-          '.estimated-total',
-          '.cart__total',
-          '.totals__total'
-        ];
-
-        for (const selector of totalSelectors) {
-          const el = document.querySelector(selector);
-          if (el) {
-            const text = (el.textContent || '').trim();
-            const match = text.match(/\\$[\\d,]+\\.?\\d*/);
-            if (match) return match[0];
-          }
-        }
-        return "$0.00";
-      }
-
-      function findCheckoutButton() {
-        const selectors = [
-          'button[name="checkout"]',
-          'input[name="checkout"]',
-          '.cart__checkout-button',
-          'a[href*="/checkout"]'
-        ];
-        for (const selector of selectors) {
-          const btn = document.querySelector(selector);
-          if (btn) return btn;
-        }
-        return null;
       }
 
       function insertCryptoButton() {
         if (document.getElementById("crypto-pay-btn")) return;
 
-        const checkoutBtn = findCheckoutButton();
-        if (!checkoutBtn) {
-          console.log("CryptoCadet: Checkout button not found yet");
-          return;
-        }
+        const checkoutBtn = document.querySelector('button[name="checkout"], .cart__checkout-button');
+        if (!checkoutBtn) return;
 
         const cryptoBtn = document.createElement("button");
         cryptoBtn.id = "crypto-pay-btn";
         cryptoBtn.type = "button";
         cryptoBtn.textContent = "🚀 Pay with Crypto";
+
         cryptoBtn.style.cssText = \`
           display: block;
           width: 100%;
-          margin: 16px 0;
-          padding: 16px 20px;
+          margin-top: 12px;
+          padding: 14px;
           background: #5c6ac4;
-          color: #fff;
+          color: white;
           border: none;
           border-radius: 6px;
-          cursor: pointer;
           font-size: 16px;
-          font-weight: 500;
-          text-align: center;
+          font-weight: 600;
+          cursor: pointer;
         \`;
 
         cryptoBtn.addEventListener("click", function () {
-          const total = getCartTotal();
+          const totalEl = document.querySelector('.cart__footer, .totals, .cart__subtotal, .totals__subtotal');
+          const total = totalEl ? totalEl.innerText.match(/\\$[\\d,.]+/)?.[0] || "$0.00" : "$0.00";
+
           const checkoutData = {
             total,
             url: window.location.href,
             ts: Date.now()
           };
+
           const redirectUrl = "https://shopify.cryptocadet.app/crypto-demo?" +
             new URLSearchParams({ checkout: JSON.stringify(checkoutData) });
-          console.log("CryptoCadet: Redirecting to", redirectUrl);
+          console.log("CryptoCadet redirecting to:", redirectUrl);
           window.location.href = redirectUrl;
         });
 
         checkoutBtn.insertAdjacentElement("afterend", cryptoBtn);
-        console.log("CryptoCadet: ✅ Crypto button inserted");
+        console.log("✅ CryptoCadet button inserted");
       }
 
-      // --- Run strategies ---
-
-      // Immediate attempt
+      // Run immediately + watch for changes
       insertCryptoButton();
-
-      // After DOM ready
-      if (document.readyState === "loading") {
-        document.addEventListener("DOMContentLoaded", insertCryptoButton);
-      }
-
-      // Mutation observer to handle dynamic themes
       new MutationObserver(insertCryptoButton).observe(document.body, {
         childList: true,
         subtree: true
       });
-
-      // Retry after short delay
-      setTimeout(insertCryptoButton, 1500);
     })();
   `);
 });
