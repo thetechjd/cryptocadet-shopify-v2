@@ -1,6 +1,6 @@
 // /public/app.js
 
-import createApp from '@shopify/app-bridge';
+const createApp = require('@shopify/app-bridge');
 
 (function () {
   // Get shop param from query string
