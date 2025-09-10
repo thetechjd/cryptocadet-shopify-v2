@@ -122,40 +122,44 @@ app.get('/health', (req, res) => {
 });
 
 // ✅ Root endpoint (fixed for CSP-safe)
+// ✅ Root endpoint (fixed for CSP-safe)
 app.get('/', (req, res) => {
-res.send(`
-  <!DOCTYPE html>
-  <html>
-  <head>
-    <meta charset="utf-8">
-    <title>CryptoCadet Payment Gateway</title>
-    <link rel="stylesheet" href="/static/style.css">
+  const shop = req.query.shop || '';   // <-- define shop properly
 
-    <!-- Inject API key -->
-    <script>
-      window.SHOPIFY_API_KEY = "${process.env.SHOPIFY_API_KEY}";
-    </script>
-  </head>
-  <body>
-    <div class="container">
-      <h1>CryptoCadet Payment Gateway</h1>
-      <p><strong>Shop:</strong> ${shop}</p>
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <title>CryptoCadet Payment Gateway</title>
+      <link rel="stylesheet" href="/static/style.css">
 
-      <div class="section">
-        <h2>Payment Method Setup</h2>
-        <button id="activate-btn" class="button">Activate Crypto Payment Method</button>
-        <div id="activation-status"></div>
+      <!-- Inject API key -->
+      <script>
+        window.SHOPIFY_API_KEY = "${process.env.SHOPIFY_API_KEY}";
+      </script>
+    </head>
+    <body>
+      <div class="container">
+        <h1>CryptoCadet Payment Gateway</h1>
+        <p><strong>Shop:</strong> ${shop}</p>
+
+        <div class="section">
+          <h2>Payment Method Setup</h2>
+          <button id="activate-btn" class="button">Activate Crypto Payment Method</button>
+          <div id="activation-status"></div>
+        </div>
       </div>
-    </div>
 
-    <!-- ✅ App Bridge from CDN -->
-    <script src="https://unpkg.com/@shopify/app-bridge@3"></script>
-    <!-- ✅ Your custom JS -->
-    <script src="/static/app.js"></script>
-  </body>
-  </html>
-`);
-})
+      <!-- ✅ App Bridge from CDN -->
+      <script src="https://unpkg.com/@shopify/app-bridge@3"></script>
+      <!-- ✅ Your custom JS -->
+      <script src="/static/app.js"></script>
+    </body>
+    </html>
+  `);
+});
+
 
 // Install/OAuth flow
 app.get('/install', (req, res) => {
