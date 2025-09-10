@@ -331,66 +331,36 @@ app.get('/install', (req, res) => {
 });
 
 app.get('/auth', (req, res) => {
-  const { shop, code } = req.query;
-  
-  if (code) {
-    // OAuth callback - exchange code for token
-    return res.redirect(`/auth/callback?shop=${shop}&code=${code}`);
-  }
-  
-  // Initial OAuth request
-  const scopes = 'write_script_tags,read_script_tags,write_checkouts,read_checkouts,read_orders,write_orders,read_payment_customizations,write_payment_customizations,read_products';
+  const { shop } = req.query;
+  if (!shop) return res.status(400).send('Missing shop param');
+
+  const scopes = 'write_script_tags,read_script_tags,write_checkouts,...';
   const redirectUri = `https://shopify.cryptocadet.app/auth/callback`;
-  const nonce = crypto.randomBytes(16).toString('hex');
-  
-  const authUrl = `https://${shop}/admin/oauth/authorize?` +
-    `client_id=${process.env.SHOPIFY_API_KEY}&` +
-    `scope=${encodeURIComponent(scopes)}&` +
-    `redirect_uri=${encodeURIComponent(redirectUri)}&` +
-    `state=${nonce}`;
-  
-  console.log('Redirecting to Shopify OAuth:', authUrl);
+  const state = crypto.randomBytes(16).toString('hex');
+
+  const authUrl = `https://${shop}/admin/oauth/authorize?client_id=${process.env.SHOPIFY_API_KEY}&scope=${encodeURIComponent(scopes)}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}`;
+
   res.redirect(authUrl);
 });
 
 app.get('/auth/callback', async (req, res) => {
   const { shop, code, state } = req.query;
-  
-  console.log('OAuth callback received:', { shop, code: code ? 'present' : 'missing', state });
-  
-  if (!shop || !code) {
-    return res.status(400).json({ error: 'Missing required OAuth parameters' });
-  }
-  
-  try {
-    // Exchange code for access token
-    const tokenResponse = await fetch(`https://${shop}/admin/oauth/access_token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        client_id: process.env.SHOPIFY_API_KEY,
-        client_secret: process.env.SHOPIFY_API_SECRET,
-        code: code
-      })
-    });
-    
-    if (!tokenResponse.ok) {
-      throw new Error(`Token exchange failed: ${tokenResponse.statusText}`);
-    }
-    
-    const tokenData = await tokenResponse.json();
-    
-    // Store the access token
-    await storeShopToken(shop, tokenData.access_token);
-    
-    console.log(`OAuth completed for shop: ${shop}`);
-    
-    // Redirect to app
-    res.redirect(`https://${shop}/admin/apps/${process.env.SHOPIFY_API_KEY}`);
-  } catch (error) {
-    console.error('OAuth error:', error);
-    res.status(500).send(`OAuth failed: ${error.message}`);
-  }
+  if (!shop || !code) return res.status(400).send('Missing params');
+
+  const tokenResponse = await fetch(`https://${shop}/admin/oauth/access_token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      client_id: process.env.SHOPIFY_API_KEY,
+      client_secret: process.env.SHOPIFY_API_SECRET,
+      code,
+    }),
+  });
+
+  const tokenData = await tokenResponse.json();
+  await storeShopToken(shop, tokenData.access_token);
+
+  res.redirect(`https://${shop}/admin/apps/${process.env.SHOPIFY_API_KEY}`);
 });
 
 // Activate payment method - FULL IMPLEMENTATION
