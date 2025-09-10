@@ -1,3 +1,4 @@
+//public/app.js
 (function () {
     const urlParams = new URLSearchParams(window.location.search);
     const shop = urlParams.get('shop');

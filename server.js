@@ -244,6 +244,190 @@ app.get('/checkout-extension.js', (req, res) => {
 // Webhooks (orders, app/uninstalled) — keep your existing handlers
 // Configure-app, test routes, etc. — keep as is
 
+app.post('/payments/sessions', async (req, res) => {
+  try {
+    const { gid, amount, currency, test, return_url } = req.body;
+
+    console.log('Creating payment session:', { gid, amount, currency, test });
+
+    if (!gid || !amount || !currency) {
+      return res.status(400).json({
+        errors: [{
+          message: 'Missing required fields: gid, amount, currency',
+          code: 'missing_required_fields'
+        }]
+      });
+    }
+
+    const paymentSession = {
+      id: `crypto_session_${Date.now()}`,
+      shopify_session_id: gid,
+      amount: amount,
+      currency: currency,
+      test_mode: test || false,
+      status: 'pending',
+      created_at: new Date().toISOString(),
+      return_url: return_url
+    };
+
+    console.log('Payment session created:', paymentSession);
+
+    const cryptoPaymentUrl = `${process.env.CRYPTO_APP_URL || 'https://your-crypto-app.com'}/pay/${paymentSession.id}`;
+
+    res.json({
+      redirect_url: cryptoPaymentUrl,
+      context: {
+        session_id: paymentSession.id,
+        amount: amount,
+        currency: currency
+      }
+    });
+
+  } catch (error) {
+    console.error('Payment session creation error:', error);
+    res.status(422).json({
+      errors: [{
+        message: 'Failed to create payment session',
+        code: 'payment_session_error',
+        details: error.message
+      }]
+    });
+  }
+});
+
+// Payment confirmation endpoint
+app.post('/payments/confirm', async (req, res) => {
+  try {
+    const { session_id, transaction_id, crypto_address, amount, block_hash } = req.body;
+
+    console.log('Confirming payment:', { session_id, transaction_id, amount });
+
+    if (!session_id || !transaction_id || !amount) {
+      return res.status(400).json({
+        error: 'Missing required fields: session_id, transaction_id, amount'
+      });
+    }
+
+    const confirmationResult = {
+      session_id: session_id,
+      transaction_id: transaction_id,
+      status: 'confirmed',
+      confirmed_at: new Date().toISOString(),
+      amount: amount,
+      crypto_address: crypto_address,
+      block_hash: block_hash
+    };
+
+    console.log('Payment confirmed:', confirmationResult);
+    
+    res.json({ 
+      success: true, 
+      transaction_id: transaction_id,
+      message: 'Payment confirmed successfully',
+      data: confirmationResult
+    });
+
+  } catch (error) {
+    console.error('Payment confirmation error:', error);
+    res.status(500).json({ 
+      error: 'Payment confirmation failed',
+      message: error.message 
+    });
+  }
+});
+
+// Payment rejection endpoint
+app.post('/payments/reject', async (req, res) => {
+  try {
+    const { session_id, reason } = req.body;
+
+    console.log('Rejecting payment:', { session_id, reason });
+
+    if (!session_id) {
+      return res.status(400).json({
+        error: 'Missing required field: session_id'
+      });
+    }
+
+    const rejectionResult = {
+      session_id: session_id,
+      status: 'rejected',
+      reason: reason || 'Payment failed',
+      rejected_at: new Date().toISOString()
+    };
+
+    console.log('Payment rejected:', rejectionResult);
+
+    res.json({ 
+      success: true, 
+      message: 'Payment rejected successfully',
+      data: rejectionResult
+    });
+
+  } catch (error) {
+    console.error('Payment rejection error:', error);
+    res.status(500).json({ 
+      error: 'Payment rejection failed',
+      message: error.message 
+    });
+  }
+});
+
+// Test checkout endpoint
+app.get('/test-checkout', (req, res) => {
+  res.send(`
+    <h1>Test Crypto Checkout</h1>
+    <p>Product: Test Bicycle - $5.00</p>
+    <button onclick="startCryptoPayment()">Pay with Crypto</button>
+    <div id="payment-status"></div>
+    
+    <script>
+      function startCryptoPayment() {
+        fetch('/payments/sessions', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            gid: 'test_session_' + Date.now(),
+            amount: 500, // $5.00 in cents
+            currency: 'USD',
+            test: true
+          })
+        })
+        .then(r => r.json())
+        .then(d => {
+          document.getElementById('payment-status').innerHTML = 
+            'Payment session created! Redirect URL: ' + d.redirect_url;
+        })
+        .catch(e => {
+          document.getElementById('payment-status').innerHTML = 
+            'Error: ' + e.message;
+        });
+      }
+    </script>
+  `);
+});
+
+// Webhook endpoints
+app.post('/webhooks/orders/create', express.raw({ type: 'application/json' }), (req, res) => {
+  console.log('Order created webhook received');
+  res.status(200).send('OK');
+});
+
+app.post('/webhooks/orders/paid', express.raw({ type: 'application/json' }), (req, res) => {
+  console.log('Order paid webhook received');
+  res.status(200).send('OK');
+});
+
+app.post('/webhooks/orders/cancelled', express.raw({ type: 'application/json' }), (req, res) => {
+  console.log('Order cancelled webhook received');
+  res.status(200).send('OK');
+});
+
+app.post('/webhooks/app/uninstalled', express.raw({ type: 'application/json' }), (req, res) => {
+  console.log('App uninstalled webhook received');
+  res.status(200).send('OK');
+});
+
 // Error handling
 app.use((err, req, res, next) => {
   console.error('Server error:', err);
