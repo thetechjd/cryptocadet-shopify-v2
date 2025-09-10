@@ -330,165 +330,126 @@ app.get('/install', (req, res) => {
   res.redirect(`/auth?shop=${shop}`);
 });
 
+const cookieParser = require('cookie-parser');
+app.use(cookieParser());
+
+function verifyHmac(query) {
+  const { hmac, ...params } = query;
+  const message = Object.keys(params)
+    .sort()
+    .map(key => `${key}=${params[key]}`)
+    .join('&');
+
+  const generated = crypto
+    .createHmac('sha256', process.env.SHOPIFY_API_SECRET)
+    .update(message)
+    .digest('hex');
+
+  return generated === hmac;
+}
+
+// -----------------------------
+// /auth route
+// -----------------------------
 app.get('/auth', (req, res) => {
-  const { shop, code } = req.query;
-  
-  if (code) {
-    // OAuth callback - exchange code for token
-    return res.redirect(`/auth/callback?shop=${shop}&code=${code}`);
-  }
-  
-  if (!shop) {
-    return res.status(400).json({ error: 'Missing shop parameter' });
-  }
-  
-  // Try different OAuth strategies
-  const scopes = 'write_script_tags,read_script_tags,write_checkouts,read_checkouts,read_orders,write_orders,read_payment_customizations,write_payment_customizations,read_products';
-  const nonce = crypto.randomBytes(16).toString('hex');
-  
-  // Strategy 1: Use exact domain without subdirectory
-  const baseRedirectUri = `https://shopify.cryptocadet.app/auth/callback`;
-  
-  // Strategy 2: Try with different parameter order
+  const { shop, embedded } = req.query;
+  if (!shop) return res.status(400).send('Missing shop param');
+
+  const scopes = [
+    'write_script_tags',
+    'read_script_tags',
+    'write_checkouts',
+    'read_checkouts',
+    'read_orders',
+    'write_orders',
+    'read_payment_customizations',
+    'write_payment_customizations',
+    'read_products',
+  ].join(',');
+
+  const state = crypto.randomBytes(16).toString('hex');
+  res.cookie('state', state, { httpOnly: true, secure: true });
+
+  const redirectUri = `https://shopify.cryptocadet.app/auth/callback`;
   const authUrl = `https://${shop}/admin/oauth/authorize` +
     `?client_id=${process.env.SHOPIFY_API_KEY}` +
-    `&redirect_uri=${encodeURIComponent(baseRedirectUri)}` +
     `&scope=${encodeURIComponent(scopes)}` +
-    `&state=${nonce}` +
-    `&response_type=code`;
-  
-  console.log('Attempting OAuth with URL:', authUrl);
-  console.log('Redirect URI being used:', baseRedirectUri);
-  
+    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+    `&state=${state}`;
+
+  // If embedded, escape iframe using App Bridge
+  if (embedded === '1') {
+    return res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head><script src="https://unpkg.com/@shopify/app-bridge@3"></script></head>
+      <body>
+        <script>
+          var AppBridge = window['app-bridge'];
+          var Redirect = AppBridge.actions.Redirect;
+          var app = AppBridge.createApp({
+            apiKey: "${process.env.SHOPIFY_API_KEY}",
+            shop: "${shop}"
+          });
+          Redirect.create(app).dispatch(Redirect.Action.REMOTE, "${authUrl}");
+        </script>
+      </body>
+      </html>
+    `);
+  }
+
+  // Non-embedded → normal redirect
   res.redirect(authUrl);
 });
 
-// Alternative: Direct install with admin API
-app.get('/auth-alt', async (req, res) => {
-  const { shop } = req.query;
-  
-  if (!shop) {
-    return res.status(400).json({ error: 'Missing shop parameter' });
-  }
-  
-  // For development: bypass OAuth and use manual token entry
-  res.send(`
-    <html>
-    <head><title>Manual App Installation</title></head>
-    <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px;">
-      <h1>Manual App Installation</h1>
-      <p>Due to OAuth configuration issues, please install manually:</p>
-      
-      <ol>
-        <li>Go to your store admin: <a href="https://${shop}/admin/settings/apps" target="_blank">https://${shop}/admin/settings/apps</a></li>
-        <li>Click "Develop apps for your store"</li>
-        <li>Create a private app with these scopes: write_script_tags,read_script_tags,write_checkouts,read_checkouts,read_orders,write_orders</li>
-        <li>Copy the access token and paste it below:</li>
-      </ol>
-      
-      <form onsubmit="saveToken(event)">
-        <input type="hidden" value="${shop}" id="shop">
-        <label>Access Token:</label><br>
-        <input type="text" id="token" style="width: 400px; padding: 8px;" placeholder="shpat_..."><br><br>
-        <button type="submit" style="background: #5c6ac4; color: white; padding: 10px 20px; border: none; border-radius: 4px;">Save Token</button>
-      </form>
-      
-      <div id="status"></div>
-      
-      <script>
-        async function saveToken(e) {
-          e.preventDefault();
-          const shop = document.getElementById('shop').value;
-          const token = document.getElementById('token').value;
-          
-          if (!token.startsWith('shpat_')) {
-            alert('Invalid token format. Should start with "shpat_"');
-            return;
-          }
-          
-          try {
-            const response = await fetch('/save-manual-token', {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({shop, token})
-            });
-            
-            const result = await response.json();
-            if (result.success) {
-              document.getElementById('status').innerHTML = 
-                '<p style="color: green;">Token saved! <a href="https://' + shop + '/admin/apps">Return to your store</a></p>';
-            } else {
-              document.getElementById('status').innerHTML = 
-                '<p style="color: red;">Error: ' + result.error + '</p>';
-            }
-          } catch (err) {
-            document.getElementById('status').innerHTML = 
-              '<p style="color: red;">Error: ' + err.message + '</p>';
-          }
-        }
-      </script>
-    </body>
-    </html>
-  `);
-});
-
-// Endpoint to save manually entered token
-app.post('/save-manual-token', async (req, res) => {
-  const { shop, token } = req.body;
-  
-  if (!shop || !token) {
-    return res.status(400).json({ error: 'Missing shop or token' });
-  }
-  
-  if (!token.startsWith('shpat_')) {
-    return res.status(400).json({ error: 'Invalid token format' });
-  }
-  
-  try {
-    // Test the token by making a simple API call
-    const testResponse = await fetch(`https://${shop}/admin/api/2023-10/shop.json`, {
-      headers: {
-        'X-Shopify-Access-Token': token,
-        'Content-Type': 'application/json'
-      }
-    });
-    
-    if (!testResponse.ok) {
-      throw new Error('Token validation failed');
-    }
-    
-    // Store the token
-    await storeShopToken(shop, token);
-    
-    console.log(`Manual token stored for shop: ${shop}`);
-    
-    res.json({ 
-      success: true, 
-      message: 'Token saved successfully. You can now activate crypto payments.' 
-    });
-  } catch (error) {
-    console.error('Token validation error:', error);
-    res.status(400).json({ error: 'Invalid token or API call failed' });
-  }
-});
+// -----------------------------
+// /auth/callback route
+// -----------------------------
 app.get('/auth/callback', async (req, res) => {
-  const { shop, code, state } = req.query;
-  if (!shop || !code) return res.status(400).send('Missing params');
+  const { shop, code, state, hmac, host } = req.query;
 
-  const tokenResponse = await fetch(`https://${shop}/admin/oauth/access_token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      client_id: process.env.SHOPIFY_API_KEY,
-      client_secret: process.env.SHOPIFY_API_SECRET,
-      code,
-    }),
-  });
+  if (!shop || !code || !hmac || !state) {
+    return res.status(400).send('Missing required params');
+  }
 
-  const tokenData = await tokenResponse.json();
-  await storeShopToken(shop, tokenData.access_token);
+  // Verify state matches
+  if (state !== req.cookies.state) {
+    return res.status(400).send('State mismatch');
+  }
 
-  res.redirect(`https://${shop}/admin/apps/${process.env.SHOPIFY_API_KEY}`);
+  // Verify HMAC
+  if (!verifyHmac(req.query)) {
+    return res.status(400).send('HMAC validation failed');
+  }
+
+  try {
+    // Exchange code for access token
+    const tokenResponse = await fetch(`https://${shop}/admin/oauth/access_token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_id: process.env.SHOPIFY_API_KEY,
+        client_secret: process.env.SHOPIFY_API_SECRET,
+        code
+      })
+    });
+
+    if (!tokenResponse.ok) {
+      throw new Error(`Token exchange failed: ${tokenResponse.statusText}`);
+    }
+
+    const tokenData = await tokenResponse.json();
+    await storeShopToken(shop, tokenData.access_token);
+
+    console.log(`OAuth complete for shop: ${shop}`);
+
+    // Redirect back into Shopify admin (embedded)
+    res.redirect(`/?shop=${shop}&host=${encodeURIComponent(host)}`);
+
+  } catch (err) {
+    console.error('OAuth error:', err);
+    res.status(500).send(`OAuth failed: ${err.message}`);
+  }
 });
 
 // Activate payment method - FULL IMPLEMENTATION
