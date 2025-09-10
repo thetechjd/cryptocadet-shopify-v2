@@ -113,16 +113,30 @@ async function storeShopToken(shop, accessToken) {
   console.log(`Stored access token for shop: ${shop}`);
 }
 
+// Also update your getShopAccessToken function to add debugging:
+
 async function getShopAccessToken(shop) {
   try {
     const tokenPath = path.join(__dirname, 'shop-tokens.json');
+    console.log('Looking for access token for shop:', shop);
+    console.log('Token file path:', tokenPath);
+    
     const data = await fs.readFile(tokenPath, 'utf8');
     const tokens = JSON.parse(data);
-    return tokens[shop]?.access_token || null;
-  } catch {
+    
+    console.log('Available shops in token file:', Object.keys(tokens));
+    console.log('Requested shop exists:', shop in tokens);
+    
+    const token = tokens[shop]?.access_token || null;
+    console.log('Token found:', token ? 'YES' : 'NO');
+    
+    return token;
+  } catch (error) {
+    console.log('Error reading token file:', error.message);
     return null;
   }
 }
+
 
 // --------------------
 // Shopify API Functions
@@ -269,41 +283,106 @@ app.get('/auth', (req, res) => {
 
 app.get('/auth/callback', async (req, res) => {
   const { shop, code, state } = req.query;
-  if (!shop || !code) return res.status(400).send('Missing params');
-
-  const tokenResponse = await fetch(`https://${shop}/admin/oauth/access_token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      client_id: process.env.SHOPIFY_API_KEY,
-      client_secret: process.env.SHOPIFY_API_SECRET,
-      code,
-    }),
-  });
-
-  const tokenData = await tokenResponse.json();
-  await storeShopToken(shop, tokenData.access_token);
-
-  res.redirect(`https://${shop}/admin/apps/${process.env.SHOPIFY_API_KEY}`);
-});
-
-
-// **** UPDATED: Activate payment method route to use the new function
-app.post('/activate-payment-method', async (req, res) => {
-  const { shop } = req.body;
-  if (!shop) return res.status(400).json({ error: 'Shop required' });
+  console.log('OAuth callback received:', { shop, code: code ? 'present' : 'missing', state });
+  
+  if (!shop || !code) {
+    console.error('Missing required OAuth params:', { shop, code });
+    return res.status(400).send('Missing shop or code parameter');
+  }
 
   try {
+    console.log(`Making token request to: https://${shop}/admin/oauth/access_token`);
+    
+    const tokenResponse = await fetch(`https://${shop}/admin/oauth/access_token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_id: process.env.SHOPIFY_API_KEY,
+        client_secret: process.env.SHOPIFY_API_SECRET,
+        code,
+      }),
+    });
+
+    const tokenData = await tokenResponse.json();
+    console.log('Token response status:', tokenResponse.status);
+    console.log('Token response data:', tokenData);
+
+    if (!tokenResponse.ok) {
+      console.error('Token request failed:', tokenData);
+      return res.status(400).send(`OAuth failed: ${JSON.stringify(tokenData)}`);
+    }
+
+    if (!tokenData.access_token) {
+      console.error('No access token in response:', tokenData);
+      return res.status(400).send('No access token received');
+    }
+
+    // Store the token
+    await storeShopToken(shop, tokenData.access_token);
+    
+    // Verify storage worked
+    const storedToken = await getShopAccessToken(shop);
+    console.log('Token storage verification:', storedToken ? 'SUCCESS' : 'FAILED');
+
+    res.redirect(`https://${shop}/admin/apps/${process.env.SHOPIFY_API_KEY}`);
+  } catch (error) {
+    console.error('OAuth callback error:', error);
+    res.status(500).send(`OAuth error: ${error.message}`);
+  }
+});
+
+// Replace your activate payment method route with this enhanced version:
+
+app.post('/activate-payment-method', async (req, res) => {
+  const { shop } = req.body;
+  console.log('Activate payment method request:', { shop, body: req.body });
+  
+  if (!shop) {
+    console.error('No shop provided in request body');
+    return res.status(400).json({ error: 'Shop required' });
+  }
+
+  try {
+    // Check if we have an access token
+    const accessToken = await getShopAccessToken(shop);
+    console.log('Access token check:', accessToken ? 'FOUND' : 'NOT FOUND');
+    
+    if (!accessToken) {
+      console.error(`No access token found for shop: ${shop}`);
+      
+      // List all stored shops for debugging
+      try {
+        const tokenPath = path.join(__dirname, 'shop-tokens.json');
+        const data = await fs.readFile(tokenPath, 'utf8');
+        const tokens = JSON.parse(data);
+        console.log('Available shops in storage:', Object.keys(tokens));
+      } catch (e) {
+        console.log('No token file found or error reading it:', e.message);
+      }
+      
+      return res.status(401).json({ 
+        error: 'No access token found', 
+        shop: shop,
+        message: 'Please reinstall the app by going through the OAuth flow again'
+      });
+    }
+
+    console.log('Creating script tag for shop:', shop);
     const scriptTag = await createScriptTag(shop);
+    console.log('Script tag created successfully:', scriptTag);
+    
     await storeMerchantConfig(shop, {
       script_tag_id: scriptTag.id,
       activated_at: new Date().toISOString(),
     });
+    
     res.json({ success: true, script_tag_id: scriptTag.id });
   } catch (err) {
+    console.error('Activation failed:', err);
     res.status(500).json({ error: 'Activation failed', details: err.message });
   }
 });
+
 
 // Merchant config
 app.get('/merchant-config/:shop', async (req, res) => {
