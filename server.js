@@ -262,17 +262,43 @@ app.get('/', (req, res) => {
             forceRedirect: true
           });
 
+          // Wait for DOM to load
+          document.addEventListener('DOMContentLoaded', function() {
+            const activateButton = document.getElementById('activate-button');
+            if (activateButton) {
+              activateButton.addEventListener('click', activatePaymentMethod);
+            }
+          });
+
+          // If DOM is already loaded
+          if (document.readyState === 'loading') {
+            // DOM is still loading, wait for DOMContentLoaded
+          } else {
+            // DOM is already loaded, attach event listener immediately
+            const activateButton = document.getElementById('activate-button');
+            if (activateButton) {
+              activateButton.addEventListener('click', activatePaymentMethod);
+            }
+          }
+
           function activatePaymentMethod() {
+            console.log('Activate button clicked');
             const statusDiv = document.getElementById('activation-status');
             statusDiv.innerHTML = '<p>Activating...</p>';
+            
+            console.log('Making fetch request to /activate-payment-method');
             
             fetch('/activate-payment-method', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ shop: '${shop}' })
             })
-            .then(response => response.json())
+            .then(response => {
+              console.log('Response received:', response.status, response.statusText);
+              return response.json();
+            })
             .then(data => {
+              console.log('Response data:', data);
               if (data.success) {
                 statusDiv.innerHTML = '<p class="success">✅ Crypto payment method activated successfully!</p>';
               } else {
@@ -280,6 +306,7 @@ app.get('/', (req, res) => {
               }
             })
             .catch(error => {
+              console.error('Fetch error:', error);
               statusDiv.innerHTML = '<p style="color: red;">❌ Error: ' + error.message + '</p>';
             });
           }
