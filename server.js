@@ -398,6 +398,11 @@ app.get('/checkout-extension.js', (req, res) => {
     (function () {
       const SCRIPT_ID = "crypto-pay-button-script";
 
+      // Only run this script on the cart page
+      if (!window.location.pathname.includes('/cart')) {
+          return;
+      }
+
       if (document.getElementById(SCRIPT_ID)) {
         return;
       }
@@ -406,22 +411,12 @@ app.get('/checkout-extension.js', (req, res) => {
       document.head.appendChild(scriptElement);
 
       function findTargetButton() {
-        const productTargets = [
-          'button[type="submit"][name="add"]',
-          'button[name="add"]',
-          '.product-form__submit',
-          'button.add-to-cart'
-        ];
-        for (const selector of productTargets) {
-          const el = document.querySelector(selector);
-          if (el) return el;
-        }
-
+        // Find the standard checkout button on the cart page
         const cartTargets = [
           'button[name="checkout"]',
           'input[name="checkout"]',
-          'a[href*="/checkout"]',
-          '.cart__checkout-button'
+          '.cart__checkout-button',
+          'a[href*="/checkout"]'
         ];
         for (const selector of cartTargets) {
           const el = document.querySelector(selector);
@@ -432,55 +427,30 @@ app.get('/checkout-extension.js', (req, res) => {
       }
 
       function extractPrice() {
-        // Try multiple price selectors with better extraction
+        // Use selectors specific to the cart page total
         const priceSelectors = [
-          '.price__current .money',
-          '.price .money', 
-          '.product__price .money',
-          '.product-price .money',
-          '.price__current',
-          '.price',
-          '.product__price',
-          '.product-price',
+          '.cart-subtotal .money',
+          '.cart__subtotal .money',
+          '.total-price .money',
+          '.order-summary__total .money',
+          '.cart-subtotal',
           '.cart__subtotal',
-          '[data-price]'
+          '.total-price',
+          '.order-summary__total'
         ];
 
         for (const selector of priceSelectors) {
           const priceEl = document.querySelector(selector);
           if (priceEl) {
             let priceText = priceEl.innerText || priceEl.textContent || '';
-            
-            // Clean up the price text
             priceText = priceText.trim();
-            
-            // Extract just the currency and number using regex
+
             const priceMatch = priceText.match(/[\$£€¥]?\\s*[\\d,]+\\.?\\d*\\s*(?:USD|EUR|GBP|CAD|AUD)?/i);
             if (priceMatch) {
               return priceMatch[0].trim();
             }
-            
-            // Fallback: if regex doesn't work, try to clean manually
-            if (priceText.includes('$')) {
-              const lines = priceText.split('\\n');
-              for (const line of lines) {
-                if (line.includes('$') && /\\d/.test(line)) {
-                  return line.trim();
-                }
-              }
-            }
           }
         }
-
-        // Final fallback - try data attributes
-        const priceDataEl = document.querySelector('[data-price-amount], [data-product-price]');
-        if (priceDataEl) {
-          const amount = priceDataEl.getAttribute('data-price-amount') || priceDataEl.getAttribute('data-product-price');
-          if (amount) {
-            return '$' + (parseFloat(amount) / 100).toFixed(2); // Assuming cents
-          }
-        }
-
         return "$0.00";
       }
 
@@ -503,6 +473,7 @@ app.get('/checkout-extension.js', (req, res) => {
           display: block;
           width: 100%;
           margin-top: 12px;
+          margin-bottom: 12px;
           padding: 12px 20px;
           background: #5c6ac4;
           color: #fff;
@@ -514,7 +485,7 @@ app.get('/checkout-extension.js', (req, res) => {
         \`;
 
         cryptoBtn.addEventListener("click", function () {
-          const productTitle = document.querySelector("h1, .product__title, .product-title")?.innerText?.trim() || "Product";
+          const productTitle = "Cart Checkout";
           const priceText = extractPrice();
 
           console.log('CryptoCadet Debug:', {
