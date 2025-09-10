@@ -396,10 +396,22 @@ app.get('/checkout-extension.js', (req, res) => {
   res.setHeader('Content-Type', 'application/javascript');
   res.send(`
     (function () {
+      console.log('CryptoCadet: Script started');
+      console.log('CryptoCadet: Current URL:', window.location.href);
+      console.log('CryptoCadet: Current pathname:', window.location.pathname);
+      
       const SCRIPT_ID = "crypto-pay-button-script";
 
-      // Only run this script on the cart page
-      if (!window.location.pathname.includes('/cart')) {
+      // Check if we're on cart page with more flexible matching
+      const isCartPage = window.location.pathname.includes('/cart') || 
+                        window.location.pathname === '/cart' ||
+                        window.location.search.includes('cart') ||
+                        document.querySelector('.cart') ||
+                        document.querySelector('[data-section-type="cart"]');
+      
+      console.log('CryptoCadet: Is cart page?', isCartPage);
+      
+      if (!isCartPage) {
         console.log('CryptoCadet: Not on cart page, skipping');
         return;
       }
@@ -412,33 +424,79 @@ app.get('/checkout-extension.js', (req, res) => {
       const scriptElement = document.createElement('script');
       scriptElement.id = SCRIPT_ID;
       document.head.appendChild(scriptElement);
+      
+      console.log('CryptoCadet: Script element added');
+
+      function debugPageElements() {
+        console.log('CryptoCadet: === PAGE DEBUGGING ===');
+        console.log('CryptoCadet: All buttons:', document.querySelectorAll('button'));
+        console.log('CryptoCadet: All inputs:', document.querySelectorAll('input[type="submit"]'));
+        console.log('CryptoCadet: All links with checkout:', document.querySelectorAll('a[href*="checkout"]'));
+        console.log('CryptoCadet: Elements with "cart" class:', document.querySelectorAll('[class*="cart"]'));
+        console.log('CryptoCadet: Elements with "checkout" class:', document.querySelectorAll('[class*="checkout"]'));
+        console.log('CryptoCadet: All forms:', document.querySelectorAll('form'));
+      }
 
       function findTargetButton() {
-        // Find the standard checkout button on the cart page
+        console.log('CryptoCadet: Looking for target button...');
+        
+        // Debug all potential elements first
+        debugPageElements();
+        
+        // Expanded list of selectors
         const cartTargets = [
           'button[name="checkout"]',
+          'input[name="checkout"]',
           'input[name="checkout"][type="submit"]',
           '.cart__checkout-button',
           '.cart__checkout',
+          '.cart-checkout',
           'a[href*="/checkout"]',
           '.checkout-button',
+          '.btn-checkout',
           'form[action*="/checkout"] button',
-          'form[action*="/checkout"] input[type="submit"]'
+          'form[action*="/checkout"] input[type="submit"]',
+          'form[action="/cart"] button[type="submit"]',
+          'form[action="/cart"] input[type="submit"]',
+          '.cart__footer button',
+          '.cart-footer button',
+          '[data-cart-checkout]',
+          // Generic fallbacks
+          'button[type="submit"]',
+          'input[type="submit"]'
         ];
         
         for (const selector of cartTargets) {
-          const el = document.querySelector(selector);
-          if (el) {
-            console.log('CryptoCadet: Found checkout button with selector:', selector);
-            return el;
+          const elements = document.querySelectorAll(selector);
+          console.log(\`CryptoCadet: Checking selector "\${selector}" - found \${elements.length} elements\`);
+          
+          if (elements.length > 0) {
+            // Log details about each found element
+            elements.forEach((el, index) => {
+              console.log(\`CryptoCadet: Element \${index}:\`, {
+                tagName: el.tagName,
+                type: el.type,
+                name: el.name,
+                className: el.className,
+                id: el.id,
+                textContent: el.textContent?.trim(),
+                innerHTML: el.innerHTML
+              });
+            });
+            
+            // Return the first found element
+            console.log('CryptoCadet: Using first element as target');
+            return elements[0];
           }
         }
         
-        console.log('CryptoCadet: No checkout button found');
+        console.log('CryptoCadet: No target button found with any selector');
         return null;
       }
 
       function extractCartTotal() {
+        console.log('CryptoCadet: Looking for cart total...');
+        
         // Use selectors specific to the cart page total
         const priceSelectors = [
           '.cart-subtotal .money',
@@ -454,7 +512,10 @@ app.get('/checkout-extension.js', (req, res) => {
           '.order-summary__total',
           '.cart-footer__total',
           '[data-cart-total]',
-          '.totals__total'
+          '.totals__total',
+          '.cart__total-price',
+          '.subtotal',
+          '.grand-total'
         ];
 
         for (const selector of priceSelectors) {
@@ -471,25 +532,6 @@ app.get('/checkout-extension.js', (req, res) => {
               console.log('CryptoCadet: Extracted price:', priceMatch[0].trim());
               return priceMatch[0].trim();
             }
-            
-            // Fallback: if regex doesn't work, try to clean manually
-            if (priceText.includes('$')) {
-              const lines = priceText.split('\\n');
-              for (const line of lines) {
-                if (line.includes('$') && /\\d/.test(line)) {
-                  return line.trim();
-                }
-              }
-            }
-          }
-        }
-
-        // Final fallback - try data attributes
-        const priceDataEl = document.querySelector('[data-cart-total], [data-total-price]');
-        if (priceDataEl) {
-          const amount = priceDataEl.getAttribute('data-cart-total') || priceDataEl.getAttribute('data-total-price');
-          if (amount) {
-            return '$' + (parseFloat(amount) / 100).toFixed(2); // Assuming cents
           }
         }
 
@@ -497,35 +539,8 @@ app.get('/checkout-extension.js', (req, res) => {
         return "$0.00";
       }
 
-      function getCartItems() {
-        // Try to extract cart items for better context
-        const items = [];
-        const itemSelectors = [
-          '.cart-item',
-          '.cart__item', 
-          '.line-item',
-          '.cart-product'
-        ];
-        
-        for (const selector of itemSelectors) {
-          const itemElements = document.querySelectorAll(selector);
-          if (itemElements.length > 0) {
-            itemElements.forEach(item => {
-              const title = item.querySelector('.cart-item__name, .cart__item-title, .line-item__title, .product-title')?.innerText?.trim();
-              const qty = item.querySelector('.cart-item__qty, .qty, .quantity')?.value || item.querySelector('.cart-item__qty, .qty, .quantity')?.innerText;
-              if (title) {
-                items.push({ title, quantity: qty || 1 });
-              }
-            });
-            break;
-          }
-        }
-        
-        return items;
-      }
-
       function addCryptoButton() {
-        console.log('CryptoCadet: Attempting to add crypto button');
+        console.log('CryptoCadet: === ATTEMPTING TO ADD CRYPTO BUTTON ===');
         
         const existingButton = document.getElementById("crypto-pay-btn");
         if (existingButton) {
@@ -535,19 +550,20 @@ app.get('/checkout-extension.js', (req, res) => {
 
         const targetBtn = findTargetButton();
         if (!targetBtn) {
-          console.log('CryptoCadet: No target button found');
+          console.log('CryptoCadet: No target button found - cannot add crypto button');
           return;
         }
+
+        console.log('CryptoCadet: Target button found, creating crypto button...');
 
         const cryptoBtn = document.createElement("button");
         cryptoBtn.id = "crypto-pay-btn";
         cryptoBtn.type = "button";
         cryptoBtn.textContent = "🚀 Pay with Crypto";
         cryptoBtn.style.cssText = \`
-          display: block;
+          display: block !important;
           width: 100%;
-          margin-top: 12px;
-          margin-bottom: 12px;
+          margin: 12px 0;
           padding: 12px 20px;
           background: #5c6ac4;
           color: #fff;
@@ -556,33 +572,17 @@ app.get('/checkout-extension.js', (req, res) => {
           cursor: pointer;
           font-size: 16px;
           font-weight: 500;
-          transition: background-color 0.2s ease;
+          z-index: 9999;
         \`;
-        
-        // Add hover effect
-        cryptoBtn.addEventListener('mouseover', function() {
-          this.style.backgroundColor = '#4c5ab3';
-        });
-        
-        cryptoBtn.addEventListener('mouseout', function() {
-          this.style.backgroundColor = '#5c6ac4';
-        });
 
         cryptoBtn.addEventListener("click", function () {
-          const cartTotal = extractCartTotal();
-          const cartItems = getCartItems();
+          console.log('CryptoCadet: Crypto button clicked!');
           
-          console.log('CryptoCadet Debug:', {
-            cartTotal,
-            cartItems,
-            url: window.location.href
-          });
-
+          const cartTotal = extractCartTotal();
+          
           const checkoutData = {
             type: 'cart_checkout',
             total: cartTotal,
-            items: cartItems,
-            item_count: cartItems.length,
             url: window.location.href,
             timestamp: new Date().toISOString()
           };
@@ -594,29 +594,72 @@ app.get('/checkout-extension.js', (req, res) => {
           window.location.href = redirectUrl;
         });
 
-        // Insert the button before the checkout button
-        targetBtn.parentNode.insertBefore(cryptoBtn, targetBtn);
-        console.log('CryptoCadet: Crypto button added successfully');
+        // Try multiple insertion strategies
+        console.log('CryptoCadet: Attempting to insert button...');
+        
+        try {
+          // Strategy 1: Insert before target button
+          if (targetBtn.parentNode) {
+            targetBtn.parentNode.insertBefore(cryptoBtn, targetBtn);
+            console.log('CryptoCadet: Button inserted before target button');
+          } else {
+            throw new Error('No parent node');
+          }
+        } catch (e) {
+          try {
+            // Strategy 2: Insert after target button
+            if (targetBtn.parentNode) {
+              targetBtn.parentNode.insertBefore(cryptoBtn, targetBtn.nextSibling);
+              console.log('CryptoCadet: Button inserted after target button');
+            } else {
+              throw new Error('No parent node');
+            }
+          } catch (e2) {
+            try {
+              // Strategy 3: Append to target's parent
+              if (targetBtn.parentNode) {
+                targetBtn.parentNode.appendChild(cryptoBtn);
+                console.log('CryptoCadet: Button appended to parent');
+              } else {
+                throw new Error('No parent node');
+              }
+            } catch (e3) {
+              // Strategy 4: Append to body as fallback
+              document.body.appendChild(cryptoBtn);
+              console.log('CryptoCadet: Button appended to body as fallback');
+            }
+          }
+        }
+        
+        // Verify the button was added
+        const addedButton = document.getElementById("crypto-pay-btn");
+        if (addedButton) {
+          console.log('CryptoCadet: ✅ Button successfully added to DOM');
+        } else {
+          console.log('CryptoCadet: ❌ Button failed to add to DOM');
+        }
       }
+
+      // Run immediately
+      console.log('CryptoCadet: Running addCryptoButton immediately...');
+      addCryptoButton();
 
       // Run when DOM is ready
       if (document.readyState === "complete" || document.readyState === "interactive") {
-        addCryptoButton();
+        console.log('CryptoCadet: DOM already ready, running again...');
+        setTimeout(addCryptoButton, 100);
       } else {
-        document.addEventListener("DOMContentLoaded", addCryptoButton);
+        console.log('CryptoCadet: Waiting for DOM ready...');
+        document.addEventListener("DOMContentLoaded", function() {
+          console.log('CryptoCadet: DOM ready event fired');
+          addCryptoButton();
+        });
       }
 
-      // Watch for dynamic cart updates (AJAX cart updates)
+      // Watch for dynamic updates
       const observer = new MutationObserver(function(mutations) {
-        let shouldRun = false;
-        mutations.forEach(function(mutation) {
-          if (mutation.addedNodes.length > 0) {
-            shouldRun = true;
-          }
-        });
-        if (shouldRun) {
-          setTimeout(addCryptoButton, 100);
-        }
+        console.log('CryptoCadet: DOM mutation detected');
+        setTimeout(addCryptoButton, 100);
       });
       
       observer.observe(document.body, {
@@ -624,9 +667,21 @@ app.get('/checkout-extension.js', (req, res) => {
         subtree: true,
       });
 
-      // Also retry after cart updates (some themes use AJAX)
-      setTimeout(addCryptoButton, 1000);
-      setTimeout(addCryptoButton, 3000);
+      // Retry with delays
+      setTimeout(() => {
+        console.log('CryptoCadet: 1 second retry...');
+        addCryptoButton();
+      }, 1000);
+      
+      setTimeout(() => {
+        console.log('CryptoCadet: 3 second retry...');
+        addCryptoButton();
+      }, 3000);
+      
+      setTimeout(() => {
+        console.log('CryptoCadet: 5 second retry...');
+        addCryptoButton();
+      }, 5000);
 
     })();
   `);
