@@ -400,12 +400,15 @@ app.get('/checkout-extension.js', (req, res) => {
 
       // Only run this script on the cart page
       if (!window.location.pathname.includes('/cart')) {
-          return;
+        console.log('CryptoCadet: Not on cart page, skipping');
+        return;
       }
 
       if (document.getElementById(SCRIPT_ID)) {
+        console.log('CryptoCadet: Script already loaded');
         return;
       }
+      
       const scriptElement = document.createElement('script');
       scriptElement.id = SCRIPT_ID;
       document.head.appendChild(scriptElement);
@@ -414,29 +417,44 @@ app.get('/checkout-extension.js', (req, res) => {
         // Find the standard checkout button on the cart page
         const cartTargets = [
           'button[name="checkout"]',
-          'input[name="checkout"]',
+          'input[name="checkout"][type="submit"]',
           '.cart__checkout-button',
-          'a[href*="/checkout"]'
+          '.cart__checkout',
+          'a[href*="/checkout"]',
+          '.checkout-button',
+          'form[action*="/checkout"] button',
+          'form[action*="/checkout"] input[type="submit"]'
         ];
+        
         for (const selector of cartTargets) {
           const el = document.querySelector(selector);
-          if (el) return el;
+          if (el) {
+            console.log('CryptoCadet: Found checkout button with selector:', selector);
+            return el;
+          }
         }
-
+        
+        console.log('CryptoCadet: No checkout button found');
         return null;
       }
 
-      function extractPrice() {
+      function extractCartTotal() {
         // Use selectors specific to the cart page total
         const priceSelectors = [
           '.cart-subtotal .money',
-          '.cart__subtotal .money',
+          '.cart__subtotal .money', 
+          '.cart__total .money',
           '.total-price .money',
           '.order-summary__total .money',
+          '.cart-footer__total .money',
           '.cart-subtotal',
-          '.cart__subtotal',
+          '.cart__subtotal', 
+          '.cart__total',
           '.total-price',
-          '.order-summary__total'
+          '.order-summary__total',
+          '.cart-footer__total',
+          '[data-cart-total]',
+          '.totals__total'
         ];
 
         for (const selector of priceSelectors) {
@@ -444,24 +462,80 @@ app.get('/checkout-extension.js', (req, res) => {
           if (priceEl) {
             let priceText = priceEl.innerText || priceEl.textContent || '';
             priceText = priceText.trim();
-
-            const priceMatch = priceText.match(/[\$£€¥]?\\s*[\\d,]+\\.?\\d*\\s*(?:USD|EUR|GBP|CAD|AUD)?/i);
+            
+            console.log('CryptoCadet: Found price element with selector:', selector, 'Text:', priceText);
+            
+            // Extract just the currency and number using regex
+            const priceMatch = priceText.match(/[\\\$£€¥]?\\s*[\\d,]+\\.?\\d*\\s*(?:USD|EUR|GBP|CAD|AUD)?/i);
             if (priceMatch) {
+              console.log('CryptoCadet: Extracted price:', priceMatch[0].trim());
               return priceMatch[0].trim();
+            }
+            
+            // Fallback: if regex doesn't work, try to clean manually
+            if (priceText.includes('$')) {
+              const lines = priceText.split('\\n');
+              for (const line of lines) {
+                if (line.includes('$') && /\\d/.test(line)) {
+                  return line.trim();
+                }
+              }
             }
           }
         }
+
+        // Final fallback - try data attributes
+        const priceDataEl = document.querySelector('[data-cart-total], [data-total-price]');
+        if (priceDataEl) {
+          const amount = priceDataEl.getAttribute('data-cart-total') || priceDataEl.getAttribute('data-total-price');
+          if (amount) {
+            return '$' + (parseFloat(amount) / 100).toFixed(2); // Assuming cents
+          }
+        }
+
+        console.log('CryptoCadet: No price found, using fallback');
         return "$0.00";
       }
 
+      function getCartItems() {
+        // Try to extract cart items for better context
+        const items = [];
+        const itemSelectors = [
+          '.cart-item',
+          '.cart__item', 
+          '.line-item',
+          '.cart-product'
+        ];
+        
+        for (const selector of itemSelectors) {
+          const itemElements = document.querySelectorAll(selector);
+          if (itemElements.length > 0) {
+            itemElements.forEach(item => {
+              const title = item.querySelector('.cart-item__name, .cart__item-title, .line-item__title, .product-title')?.innerText?.trim();
+              const qty = item.querySelector('.cart-item__qty, .qty, .quantity')?.value || item.querySelector('.cart-item__qty, .qty, .quantity')?.innerText;
+              if (title) {
+                items.push({ title, quantity: qty || 1 });
+              }
+            });
+            break;
+          }
+        }
+        
+        return items;
+      }
+
       function addCryptoButton() {
+        console.log('CryptoCadet: Attempting to add crypto button');
+        
         const existingButton = document.getElementById("crypto-pay-btn");
         if (existingButton) {
+          console.log('CryptoCadet: Button already exists');
           return;
         }
 
         const targetBtn = findTargetButton();
         if (!targetBtn) {
+          console.log('CryptoCadet: No target button found');
           return;
         }
 
@@ -482,44 +556,77 @@ app.get('/checkout-extension.js', (req, res) => {
           cursor: pointer;
           font-size: 16px;
           font-weight: 500;
+          transition: background-color 0.2s ease;
         \`;
+        
+        // Add hover effect
+        cryptoBtn.addEventListener('mouseover', function() {
+          this.style.backgroundColor = '#4c5ab3';
+        });
+        
+        cryptoBtn.addEventListener('mouseout', function() {
+          this.style.backgroundColor = '#5c6ac4';
+        });
 
         cryptoBtn.addEventListener("click", function () {
-          const productTitle = "Cart Checkout";
-          const priceText = extractPrice();
-
+          const cartTotal = extractCartTotal();
+          const cartItems = getCartItems();
+          
           console.log('CryptoCadet Debug:', {
-            productTitle,
-            priceText,
+            cartTotal,
+            cartItems,
             url: window.location.href
           });
 
           const checkoutData = {
-            product: productTitle,
-            price: priceText,
+            type: 'cart_checkout',
+            total: cartTotal,
+            items: cartItems,
+            item_count: cartItems.length,
             url: window.location.href,
+            timestamp: new Date().toISOString()
           };
 
           const redirectUrl = "https://shopify.cryptocadet.app/crypto-demo?" +
             new URLSearchParams({ checkout: JSON.stringify(checkoutData) });
 
+          console.log('CryptoCadet: Redirecting to:', redirectUrl);
           window.location.href = redirectUrl;
         });
 
-        targetBtn.parentNode.insertBefore(cryptoBtn, targetBtn.nextSibling);
+        // Insert the button before the checkout button
+        targetBtn.parentNode.insertBefore(cryptoBtn, targetBtn);
+        console.log('CryptoCadet: Crypto button added successfully');
       }
 
+      // Run when DOM is ready
       if (document.readyState === "complete" || document.readyState === "interactive") {
         addCryptoButton();
       } else {
         document.addEventListener("DOMContentLoaded", addCryptoButton);
       }
 
-      const observer = new MutationObserver(addCryptoButton);
+      // Watch for dynamic cart updates (AJAX cart updates)
+      const observer = new MutationObserver(function(mutations) {
+        let shouldRun = false;
+        mutations.forEach(function(mutation) {
+          if (mutation.addedNodes.length > 0) {
+            shouldRun = true;
+          }
+        });
+        if (shouldRun) {
+          setTimeout(addCryptoButton, 100);
+        }
+      });
+      
       observer.observe(document.body, {
         childList: true,
         subtree: true,
       });
+
+      // Also retry after cart updates (some themes use AJAX)
+      setTimeout(addCryptoButton, 1000);
+      setTimeout(addCryptoButton, 3000);
 
     })();
   `);
