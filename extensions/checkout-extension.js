@@ -1,17 +1,23 @@
 (function () {
     function addCryptoButton() {
-      // Prevent duplicates
+      // Avoid duplicates
       if (document.getElementById("crypto-pay-btn")) return;
   
-      // Look for the Add to Cart button
+      // Find Add to Cart button (product pages)
       const addToCartBtn = document.querySelector(
         'form[action*="/cart/add"] input[type="submit"], button[name="add"]'
       );
-      if (!addToCartBtn) return;
   
-      // Create the Crypto button
+      // Or find cart checkout button (cart page)
+      const checkoutBtn = document.querySelector('form[action*="/checkout"] [type="submit"], .cart__checkout');
+  
+      const targetBtn = addToCartBtn || checkoutBtn;
+      if (!targetBtn) return;
+  
+      // Create button
       const cryptoBtn = document.createElement("button");
       cryptoBtn.id = "crypto-pay-btn";
+      cryptoBtn.type = "button";
       cryptoBtn.textContent = "🚀 Pay with Crypto";
       cryptoBtn.style.cssText = `
         display: block;
@@ -26,13 +32,12 @@
         font-weight: 500;
       `;
   
-      // Handle click → redirect to demo checkout
-      cryptoBtn.onclick = function (e) {
-        e.preventDefault();
-  
-        const productTitle = document.querySelector("h1")?.innerText || "Product";
+      // Redirect to your demo flow
+      cryptoBtn.addEventListener("click", function () {
+        const productTitle = document.querySelector("h1")?.innerText || "Cart";
         const priceText =
-          document.querySelector(".price, .product-price")?.innerText || "$0.00";
+          document.querySelector(".price, .product-price, .cart__subtotal")?.innerText ||
+          "$0.00";
   
         const checkoutData = {
           product: productTitle,
@@ -45,22 +50,22 @@
           new URLSearchParams({ checkout: JSON.stringify(checkoutData) });
   
         window.location.href = redirectUrl;
-      };
+      });
   
-      // Insert after Add to Cart
-      addToCartBtn.parentNode.appendChild(cryptoBtn);
+      // Insert below button
+      targetBtn.parentNode.appendChild(cryptoBtn);
     }
   
     // Run immediately
     addCryptoButton();
   
-    // Re-run if DOM changes (SPA theme support)
+    // Watch for theme DOM updates (Shopify themes often SPA-style load)
     new MutationObserver(addCryptoButton).observe(document.body, {
       childList: true,
       subtree: true,
     });
   
-    // Safety fallback
+    // Retry after load
     setTimeout(addCryptoButton, 2000);
     setTimeout(addCryptoButton, 5000);
   })();
