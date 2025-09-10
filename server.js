@@ -22,9 +22,13 @@ app.use(
           "'self'",
           "'unsafe-inline'",
           "https://cdn.shopify.com",
-          "https://unpkg.com" // ✅ allow App Bridge from unpkg
+          "https://unpkg.com"   // ✅ allow App Bridge from CDN
         ],
-        connectSrc: ["'self'", "https://*.myshopify.com", "https://admin.shopify.com"],
+        connectSrc: [
+          "'self'",
+          "https://*.myshopify.com",
+          "https://admin.shopify.com"
+        ],
         frameSrc: ["'self'", "https://*.myshopify.com", "https://admin.shopify.com"],
         frameAncestors: ["https://*.myshopify.com", "https://admin.shopify.com"],
       },
@@ -118,44 +122,38 @@ app.get('/health', (req, res) => {
 });
 
 // ✅ Root endpoint (fixed for CSP-safe)
-app.get('/', (req, res) => {
-  const shop = req.query.shop;
-  if (shop) {
-    res.send(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <title>CryptoCadet Payment Gateway</title>
-        <link rel="stylesheet" href="/static/style.css">
-      </head>
-      <body>
-        <div class="container">
-          <h1>CryptoCadet Payment Gateway</h1>
-          <p><strong>Shop:</strong> ${shop}</p>
-          <div class="section">
-            <h2>App Status</h2>
-            <div class="status-item">✅ Server running</div>
-            <div class="status-item">✅ Connected to Shopify</div>
-            <div class="status-item">✅ Ready for payment processing</div>
-          </div>
-          <div class="section">
-            <h2>Payment Method Setup</h2>
-            <button id="activate-btn" class="button">Activate Crypto Payment Method</button>
-            <div id="activation-status"></div>
-          </div>
-        </div>
-       <script src="https://unpkg.com/@shopify/app-bridge@3"></script>
-<script src="/static/app.js"></script>
-        
-      </body>
-      </html>
-    `);
-  } else {
-    res.json({ message: 'CryptoCadet Payment Gateway API' });
-  }
-});
+res.send(`
+  <!DOCTYPE html>
+  <html>
+  <head>
+    <meta charset="utf-8">
+    <title>CryptoCadet Payment Gateway</title>
+    <link rel="stylesheet" href="/static/style.css">
 
+    <!-- Inject API key -->
+    <script>
+      window.SHOPIFY_API_KEY = "${process.env.SHOPIFY_API_KEY}";
+    </script>
+  </head>
+  <body>
+    <div class="container">
+      <h1>CryptoCadet Payment Gateway</h1>
+      <p><strong>Shop:</strong> ${shop}</p>
+
+      <div class="section">
+        <h2>Payment Method Setup</h2>
+        <button id="activate-btn" class="button">Activate Crypto Payment Method</button>
+        <div id="activation-status"></div>
+      </div>
+    </div>
+
+    <!-- ✅ App Bridge from CDN -->
+    <script src="https://unpkg.com/@shopify/app-bridge@3"></script>
+    <!-- ✅ Your custom JS -->
+    <script src="/static/app.js"></script>
+  </body>
+  </html>
+`);
 // Install/OAuth flow
 app.get('/install', (req, res) => {
   const { shop } = req.query;

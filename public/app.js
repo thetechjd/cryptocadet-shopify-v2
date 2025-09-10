@@ -3,20 +3,26 @@
     const shop = urlParams.get('shop');
   
     if (!shop) {
-      console.error('Missing shop param');
+      console.error('Missing shop param in URL');
       return;
     }
   
-    // Use global AppBridge object (from unpkg script)
+    if (!window.SHOPIFY_API_KEY) {
+      console.error('Missing SHOPIFY_API_KEY');
+      return;
+    }
+  
+    // Get App Bridge from global (loaded via CDN)
     const AppBridge = window['app-bridge'];
     const createApp = AppBridge.createApp;
   
     const app = createApp({
-      apiKey: window.SHOPIFY_API_KEY || '',
+      apiKey: window.SHOPIFY_API_KEY,
       shopOrigin: shop,
       forceRedirect: true,
     });
   
+    // Handle button click
     const activateBtn = document.getElementById('activate-btn');
     const statusDiv = document.getElementById('activation-status');
   
