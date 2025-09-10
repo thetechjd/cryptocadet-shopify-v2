@@ -392,116 +392,120 @@ app.get('/merchant-config/:shop', async (req, res) => {
 });
 
 // **** UPDATED: This route serves the actual JavaScript file
-app.get('/checkout-extension.js', (_req, res) => {
-  res.type('application/javascript').send(`
+app.get('/checkout-extension.js', (req, res) => {
+  res.setHeader('Content-Type', 'application/javascript');
+  res.send(`
     (function () {
-      const BTN_ID = 'crypto-pay-btn';
+      const SCRIPT_ID = "crypto-pay-button-script";
 
-      // Only on the cart page
-      if (!/\\/cart(\\/|$)?/.test(location.pathname)) return;
-
-      function $q(sel, root) { return (root || document).querySelector(sel); }
-      function $qa(sel, root) { return (root || document).querySelectorAll(sel); }
-
-      // Find the *visible* cart form (NOT the drawer/notification form)
-      function getCartForm() {
-        // Typical Dawn: main cart form has action="/cart"
-        const forms = Array.from($qa('form[action="/cart"]'))
-          // exclude known hidden/notification/drawer forms
-          .filter(f =>
-            f.id !== 'cart-notification-form' &&
-            getComputedStyle(f).display !== 'none' &&
-            f.offsetParent !== null // visible in layout
-          );
-        return forms[0] || null;
+      // Exit early if not on the cart page or if the script is already loaded
+      if (!window.location.pathname.includes('/cart') || document.getElementById(SCRIPT_ID)) {
+        return;
       }
-
-      function getCheckoutButton(form) {
-        if (!form) return null;
-        // The real CTA inside the cart form
-        const btn = form.querySelector('[name="checkout"], button[type="submit"], input[type="submit"]');
-        if (!btn) return null;
-        // Make sure it’s actually visible
-        const cs = getComputedStyle(btn);
-        if (cs.display === 'none' || cs.visibility === 'hidden') return null;
-        return btn;
-      }
-
+      
+      // Function to extract the cart total
       function getCartTotal() {
-        const selectors = [
-          '.totals__total-value',
-          '.cart__footer .totals .totals__total-value',
-          '.cart-subtotal .money',
-          '.cart__subtotal .money'
+        const totalSelectors = [
+          '.cart__footer .totals .total',
+          '.cart-footer .total',
+          '.estimated-total',
+          '.cart__total',
+          '.totals__total'
         ];
-        for (const s of selectors) {
-          const el = $q(s);
-          if (el) return (el.textContent || '').trim();
+
+        for (const selector of totalSelectors) {
+          const el = document.querySelector(selector);
+          if (el) {
+            const text = (el.textContent || '').trim();
+            const match = text.match(/\\$[\\d,]+\\.?\\d*/);
+            if (match) {
+              return match[0];
+            }
+          }
         }
-        return '';
+        return "$0.00"; // Fallback to a safe value
       }
 
-      function ensureButton() {
-        if (document.getElementById(BTN_ID)) return true;
+      // Function to find the checkout button
+      function findCheckoutButton() {
+        const selectors = [
+          'button[name="checkout"]',
+          '.cart__checkout-button',
+          'a[href*="/checkout"]',
+          'input[name="checkout"]'
+        ];
+        
+        for (const selector of selectors) {
+          const button = document.querySelector(selector);
+          if (button) {
+            return button;
+          }
+        }
+        return null;
+      }
 
-        const form = getCartForm();
-        const checkoutBtn = getCheckoutButton(form);
-        if (!form || !checkoutBtn) return false;
+      // Function to create and insert the crypto button
+      function addCryptoButton() {
+        // Exit if the crypto button already exists to avoid duplication
+        if (document.getElementById("crypto-pay-btn")) {
+          return;
+        }
 
-        const cryptoBtn = document.createElement('button');
-        cryptoBtn.id = BTN_ID;
-        cryptoBtn.type = 'button';
-        cryptoBtn.textContent = '🚀 Pay with Crypto';
+        const checkoutBtn = findCheckoutButton();
+        if (!checkoutBtn) {
+          return;
+        }
 
-        // Strong inline styles so theme CSS can’t hide it
-        cryptoBtn.style.cssText = [
-          'display:block!important',
-          'width:100%!important',
-          'margin:12px 0!important',
-          'padding:14px 18px!important',
-          'background:#ff6b35!important',
-          'color:#fff!important',
-          'border:none!important',
-          'border-radius:8px!important',
-          'font-size:16px!important',
-          'font-weight:600!important',
-          'cursor:pointer!important',
-          'visibility:visible!important',
-          'opacity:1!important',
-          'position:static!important',
-          'z-index:auto!important'
-        ].join(';');
+        const cryptoBtn = document.createElement("button");
+        cryptoBtn.id = "crypto-pay-btn";
+        cryptoBtn.type = "button";
+        cryptoBtn.textContent = "🚀 Pay with Crypto";
+        
+        // Aggressive CSS to ensure visibility
+        cryptoBtn.style.cssText = \`
+          display: block !important;
+          width: 100% !important;
+          margin-top: 16px !important;
+          margin-bottom: 16px !important;
+          padding: 16px 20px !important;
+          background: #5c6ac4 !important;
+          color: #fff !important;
+          border: none !important;
+          border-radius: 6px !important;
+          cursor: pointer !important;
+          font-size: 16px !important;
+          font-weight: 500 !important;
+          text-align: center !important;
+        \`;
 
-        cryptoBtn.addEventListener('click', () => {
+        cryptoBtn.addEventListener("click", function () {
+          const total = getCartTotal();
           const checkoutData = {
-            type: 'cart',
-            total: getCartTotal(),
-            url: location.href,
-            at: new Date().toISOString()
+            total: total,
+            url: window.location.href,
           };
-          const redirectUrl =
-            'https://shopify.cryptocadet.app/crypto-demo?' +
-            new URLSearchParams({ checkout: JSON.stringify(checkoutData) }).toString();
-          location.href = redirectUrl;
+          const redirectUrl = "https://shopify.cryptocadet.app/crypto-demo?" +
+            new URLSearchParams({ checkout: JSON.stringify(checkoutData) });
+          window.location.href = redirectUrl;
         });
 
-        // Insert right before the visible checkout button
-        checkoutBtn.insertAdjacentElement('beforebegin', cryptoBtn);
-        return true;
+        // Insert the button directly before the checkout button
+        checkoutBtn.parentNode.insertBefore(cryptoBtn, checkoutBtn);
+      }
+      
+      // Run the function after the DOM is ready
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", addCryptoButton);
+      } else {
+        addCryptoButton();
       }
 
-      // Try now, then observe for dynamic cart renders
-      if (!ensureButton()) {
-        const obs = new MutationObserver(() => {
-          if (ensureButton()) obs.disconnect();
-        });
-        obs.observe(document.body, { childList: true, subtree: true });
-        // and a short retry loop for good measure
-        let tries = 0;
-        const t = setInterval(() => {
-          if (ensureButton() || ++tries > 20) clearInterval(t);
-        }, 250);
-      }
+      // Use a MutationObserver as a fallback for dynamic content
+      const observer = new MutationObserver(addCryptoButton);
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+      });
     })();
   `);
 });
