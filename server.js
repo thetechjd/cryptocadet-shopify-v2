@@ -431,6 +431,59 @@ app.get('/checkout-extension.js', (req, res) => {
         return null;
       }
 
+      function extractPrice() {
+        // Try multiple price selectors with better extraction
+        const priceSelectors = [
+          '.price__current .money',
+          '.price .money', 
+          '.product__price .money',
+          '.product-price .money',
+          '.price__current',
+          '.price',
+          '.product__price',
+          '.product-price',
+          '.cart__subtotal',
+          '[data-price]'
+        ];
+
+        for (const selector of priceSelectors) {
+          const priceEl = document.querySelector(selector);
+          if (priceEl) {
+            let priceText = priceEl.innerText || priceEl.textContent || '';
+            
+            // Clean up the price text
+            priceText = priceText.trim();
+            
+            // Extract just the currency and number using regex
+            const priceMatch = priceText.match(/[\$£€¥]?\\s*[\\d,]+\\.?\\d*\\s*(?:USD|EUR|GBP|CAD|AUD)?/i);
+            if (priceMatch) {
+              return priceMatch[0].trim();
+            }
+            
+            // Fallback: if regex doesn't work, try to clean manually
+            if (priceText.includes('$')) {
+              const lines = priceText.split('\\n');
+              for (const line of lines) {
+                if (line.includes('$') && /\\d/.test(line)) {
+                  return line.trim();
+                }
+              }
+            }
+          }
+        }
+
+        // Final fallback - try data attributes
+        const priceDataEl = document.querySelector('[data-price-amount], [data-product-price]');
+        if (priceDataEl) {
+          const amount = priceDataEl.getAttribute('data-price-amount') || priceDataEl.getAttribute('data-product-price');
+          if (amount) {
+            return '$' + (parseFloat(amount) / 100).toFixed(2); // Assuming cents
+          }
+        }
+
+        return "$0.00";
+      }
+
       function addCryptoButton() {
         const existingButton = document.getElementById("crypto-pay-btn");
         if (existingButton) {
@@ -461,8 +514,14 @@ app.get('/checkout-extension.js', (req, res) => {
         \`;
 
         cryptoBtn.addEventListener("click", function () {
-          const productTitle = document.querySelector("h1")?.innerText || "Product";
-          const priceText = document.querySelector(".price, .product-price, .cart__subtotal")?.innerText || "$0.00";
+          const productTitle = document.querySelector("h1, .product__title, .product-title")?.innerText?.trim() || "Product";
+          const priceText = extractPrice();
+
+          console.log('CryptoCadet Debug:', {
+            productTitle,
+            priceText,
+            url: window.location.href
+          });
 
           const checkoutData = {
             product: productTitle,
@@ -494,7 +553,6 @@ app.get('/checkout-extension.js', (req, res) => {
     })();
   `);
 });
-
 // Payments routes (sessions, confirm, reject)
 app.post('/payments/sessions', async (req, res) => {
   try {
